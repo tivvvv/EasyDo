@@ -1,0 +1,32 @@
+# 依赖与包管理器缓存.
+node_modules/
+.pnpm-store/
+
+# 构建与测试产物.
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# 本地环境变量.
+.env
+.env.*
+!.env.example
+
+# 编辑器与操作系统文件.
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# 日志与临时文件.
+*.log
+*.tmp
+*.temp
+
+# 本地会话辅助目录.
+/outputs/
+/work/
