@@ -1,9 +1,14 @@
 {
   "name": "@easydo/storage",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@easydo/domain": "workspace:*",
+    "dexie": "4.4.5"
   }
 }

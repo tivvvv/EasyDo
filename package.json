@@ -1,6 +1,6 @@
 {
   "name": "easydo",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Local-first task management and calendar application.",
   "type": "module",
@@ -16,6 +16,9 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "prepare": "node scripts/configure-git-hooks.mjs",
+    "test": "pnpm --filter @easydo/web test",
+    "test:coverage": "pnpm --filter @easydo/web test:coverage",
+    "test:e2e": "pnpm --filter @easydo/web test:e2e",
     "typecheck": "pnpm --recursive --if-present typecheck"
   },
   "devDependencies": {
