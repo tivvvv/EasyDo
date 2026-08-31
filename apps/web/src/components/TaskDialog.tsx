@@ -1,6 +1,26 @@
-import type { Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
+import type {
+  Category,
+  Priority,
+  RecurrenceEditScope,
+  Tag,
+  Task,
+  TaskDraft,
+  TaskTemplate,
+} from '@easydo/domain';
 import { createId, priorityLabels } from '@easydo/domain';
-import { CalendarDays, Check, Clock3, Flag, Plus, Repeat2, Trash2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  BookmarkPlus,
+  CalendarDays,
+  Check,
+  Clock3,
+  Flag,
+  Plus,
+  Repeat2,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 
 type TaskDialogProps = {
@@ -9,10 +29,12 @@ type TaskDialogProps = {
   defaultTime?: string | null;
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
-  onSave: (draft: TaskDraft, id?: string) => Promise<void>;
+  onSave: (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => Promise<void>;
+  onSaveTemplate: (name: string, draft: TaskDraft) => Promise<void>;
   open: boolean;
   tags: Tag[];
   task: Task | null;
+  templates: TaskTemplate[];
 };
 
 const emptyDraft: TaskDraft = {
@@ -20,6 +42,7 @@ const emptyDraft: TaskDraft = {
   dueDate: null,
   dueTime: null,
   duration: 30,
+  endDate: null,
   notes: '',
   priority: 'none',
   recurrence: null,
@@ -36,9 +59,11 @@ export function TaskDialog({
   onClose,
   onDelete,
   onSave,
+  onSaveTemplate,
   open,
   tags,
   task,
+  templates,
 }: TaskDialogProps) {
   const titleId = useId();
   const [draft, setDraft] = useState<TaskDraft>(() =>
@@ -48,6 +73,7 @@ export function TaskDialog({
           dueDate: task.dueDate,
           dueTime: task.dueTime,
           duration: task.duration,
+          endDate: task.endDate,
           notes: task.notes,
           priority: task.priority,
           recurrence: task.recurrence,
@@ -65,6 +91,7 @@ export function TaskDialog({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [recurrenceScope, setRecurrenceScope] = useState<RecurrenceEditScope>('future');
 
   useEffect(() => {
     if (!open) {
@@ -89,6 +116,10 @@ export function TaskDialog({
       setError('请输入任务标题.');
       return;
     }
+    if (draft.dueDate && draft.endDate && draft.endDate < draft.dueDate) {
+      setError('结束日期不能早于开始日期.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -99,6 +130,7 @@ export function TaskDialog({
           title: draft.title.trim(),
         },
         task?.id,
+        task?.recurrence ? recurrenceScope : undefined,
       );
       onClose();
     } finally {
@@ -123,6 +155,36 @@ export function TaskDialog({
         </header>
 
         <div className="dialog-body">
+          {templates.length > 0 && !task && (
+            <label className="field full-field template-picker">
+              <span>从模板创建</span>
+              <select
+                defaultValue=""
+                onChange={(event) => {
+                  const template = templates.find((item) => item.id === event.target.value);
+                  if (template) {
+                    setDraft({
+                      ...template.draft,
+                      dueDate: defaultDate ?? template.draft.dueDate,
+                      dueTime: defaultTime ?? template.draft.dueTime,
+                      subtasks: template.draft.subtasks.map((subtask) => ({
+                        ...subtask,
+                        completedAt: null,
+                        id: createId('subtask'),
+                      })),
+                    });
+                  }
+                }}
+              >
+                <option value="">选择任务模板</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="field full-field">
             <span>任务标题</span>
             <input
@@ -157,9 +219,28 @@ export function TaskDialog({
                 日期
               </span>
               <input
-                onChange={(event) => setDraft({ ...draft, dueDate: event.target.value || null })}
+                onChange={(event) => {
+                  const dueDate = event.target.value || null;
+                  setDraft({
+                    ...draft,
+                    dueDate,
+                    dueTime: dueDate ? draft.dueTime : null,
+                    endDate: dueDate ? draft.endDate : null,
+                    recurrence: dueDate ? draft.recurrence : null,
+                  });
+                }}
                 type="date"
                 value={draft.dueDate ?? ''}
+              />
+            </label>
+            <label className="field">
+              <span>结束日期</span>
+              <input
+                disabled={!draft.dueDate}
+                min={draft.dueDate ?? undefined}
+                onChange={(event) => setDraft({ ...draft, endDate: event.target.value || null })}
+                type="date"
+                value={draft.endDate ?? ''}
               />
             </label>
             <label className="field">
@@ -332,6 +413,30 @@ export function TaskDialog({
             </fieldset>
           )}
 
+          {task?.recurrence && (
+            <fieldset className="choice-field">
+              <legend>重复任务修改范围</legend>
+              <div className="scope-choices">
+                {(
+                  [
+                    ['current', '仅本次'],
+                    ['future', '本次及以后'],
+                    ['all', '全部重复任务'],
+                  ] as const
+                ).map(([scope, label]) => (
+                  <button
+                    className={recurrenceScope === scope ? 'selected' : ''}
+                    key={scope}
+                    onClick={() => setRecurrenceScope(scope)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           <fieldset className="choice-field subtask-field">
             <legend>子任务</legend>
             <div className="subtask-editor">
@@ -371,6 +476,26 @@ export function TaskDialog({
                     placeholder="输入子任务"
                     value={subtask.title}
                   />
+                  <button
+                    aria-label={`上移子任务 ${index + 1}`}
+                    disabled={index === 0}
+                    onClick={() =>
+                      setDraft({ ...draft, subtasks: moveItem(draft.subtasks, index, index - 1) })
+                    }
+                    type="button"
+                  >
+                    <ArrowUp size={14} />
+                  </button>
+                  <button
+                    aria-label={`下移子任务 ${index + 1}`}
+                    disabled={index === draft.subtasks.length - 1}
+                    onClick={() =>
+                      setDraft({ ...draft, subtasks: moveItem(draft.subtasks, index, index + 1) })
+                    }
+                    type="button"
+                  >
+                    <ArrowDown size={14} />
+                  </button>
                   <button
                     aria-label={`删除子任务 ${index + 1}`}
                     onClick={() =>
@@ -479,6 +604,18 @@ export function TaskDialog({
             </button>
           )}
           <span />
+          <button
+            className="secondary-button"
+            disabled={!draft.title.trim()}
+            onClick={() => {
+              const name = window.prompt('请输入模板名称.', draft.title.trim());
+              if (name?.trim()) void onSaveTemplate(name.trim(), draft);
+            }}
+            type="button"
+          >
+            <BookmarkPlus size={16} />
+            保存模板
+          </button>
           <button className="secondary-button" onClick={onClose} type="button">
             取消
           </button>
@@ -494,4 +631,12 @@ export function TaskDialog({
       </section>
     </div>
   );
+}
+
+function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  if (item !== undefined) next.splice(to, 0, item);
+  return next;
 }

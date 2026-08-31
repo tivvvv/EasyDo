@@ -1,5 +1,21 @@
-import type { Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
-import { matchesTaskSearch, priorityLabels, sortTasks } from '@easydo/domain';
+import type {
+  ActivityRecord,
+  AppSettings,
+  Category,
+  FilterCriteria,
+  Priority,
+  RecurrenceEditScope,
+  Tag,
+  Task,
+  TaskDraft,
+  TaskTemplate,
+} from '@easydo/domain';
+import {
+  defaultFilterCriteria,
+  matchesTaskSearch,
+  priorityLabels,
+  sortTasks,
+} from '@easydo/domain';
 import { addDays, addMonths, addWeeks, format, isSameDay, startOfDay, startOfWeek } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
@@ -10,12 +26,14 @@ import {
   CirclePlus,
   Download,
   Edit3,
+  History,
   Inbox,
   ListTodo,
   Menu,
   RotateCcw,
   Search,
   Settings,
+  SlidersHorizontal,
   Tag as TagIcon,
   Trash2,
   Upload,
@@ -24,22 +42,30 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   addCategory,
+  addSavedFilter,
   addTag,
+  addTemplate,
   db,
   deleteCategory,
+  deleteSavedFilter,
   deleteTag,
+  deleteTemplate,
   emptyTrash,
   exportBackup,
   replaceFromBackup,
   reorderCategories,
+  reorderTasks,
   updateCategory,
+  updateSettings,
   updateTag,
 } from '@easydo/storage';
-import { parseBackup } from '@easydo/application';
+import { matchesFilter, parseBackup } from '@easydo/application';
 
 import { taskService } from './application';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
 import { CollectionDialog } from './components/CollectionDialog';
+import { FilterPanel } from './components/FilterPanel';
+import { QuickEditPanel } from './components/QuickEditPanel';
 import { TaskDialog } from './components/TaskDialog';
 import { TaskList } from './components/TaskList';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
@@ -48,7 +74,7 @@ import { toDateKey } from './lib/calendar';
 import './styles.css';
 
 type View =
-  | { kind: 'all' | 'calendar' | 'inbox' | 'settings' | 'today' | 'trash' }
+  | { kind: 'all' | 'calendar' | 'history' | 'inbox' | 'settings' | 'today' | 'trash' }
   | { id: string; kind: 'category' | 'tag' };
 
 const today = startOfDay(new Date());
@@ -60,7 +86,9 @@ export function App() {
   const [currentDate, setCurrentDate] = useState(today);
   const [selectedDate, setSelectedDate] = useState(today);
   const [search, setSearch] = useState('');
-  const [priority, setPriority] = useState<Priority | 'all'>('all');
+  const [criteria, setCriteria] = useState<FilterCriteria>({ ...defaultFilterCriteria });
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [quickEditingTask, setQuickEditingTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const [dialogTime, setDialogTime] = useState<string | null>(null);
@@ -70,8 +98,9 @@ export function App() {
     kind: 'category' | 'tag';
   } | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   const openNewTask = (date: string | null, time: string | null = null) => {
     setEditingTask(null);
@@ -100,9 +129,16 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  const showToast = (message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(''), 2400);
+  const showToast = (message: string, undo = false) => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    setToast({ message, undo });
+    toastTimerRef.current = window.setTimeout(
+      () => {
+        setToast(null);
+        toastTimerRef.current = null;
+      },
+      undo ? 6_000 : 2_400,
+    );
   };
 
   useTaskReminders(data?.tasks ?? []);
@@ -118,22 +154,22 @@ export function App() {
     );
   }
 
-  const { categories, tags, tasks } = data;
+  const { activities, categories, filters, settings, tags, tasks, templates } = data;
   const activeTasks = tasks.filter((task) => !task.deletedAt);
   const trashedTasks = tasks.filter((task) => task.deletedAt);
   const filteredTasks = sortTasks(
     activeTasks.filter(
-      (task) =>
-        matchesTaskSearch(task, search) && (priority === 'all' || task.priority === priority),
+      (task) => matchesTaskSearch(task, search) && matchesFilter(task, criteria, toDateKey(today)),
     ),
   );
   const viewTasks = getViewTasks(filteredTasks, view);
   const title = getViewTitle(view, categories, tags);
 
-  const saveTask = async (draft: TaskDraft, id?: string) => {
+  const saveTask = async (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => {
     if (id) {
-      await taskService.update(id, draft);
-      showToast('任务已更新.');
+      if (scope) await taskService.updateRecurring(id, draft, scope);
+      else await taskService.update(id, draft);
+      showToast('任务已更新.', true);
     } else {
       await taskService.create(draft);
       showToast('任务已创建.');
@@ -259,7 +295,46 @@ export function App() {
           ))}
         </SidebarSection>
 
+        <SidebarSection label="智能清单" onAdd={() => setFilterOpen(true)}>
+          <NavButton
+            active={false}
+            icon={<CalendarDays size={16} />}
+            label="未来 7 天"
+            onClick={() => {
+              setCriteria({ ...defaultFilterCriteria, dateRange: 'next7' });
+              chooseView({ kind: 'all' });
+            }}
+          />
+          <NavButton
+            active={false}
+            icon={<History size={16} />}
+            label="已过期"
+            onClick={() => {
+              setCriteria({ ...defaultFilterCriteria, dateRange: 'overdue' });
+              chooseView({ kind: 'all' });
+            }}
+          />
+          {filters.map((filter) => (
+            <NavButton
+              active={false}
+              icon={<SlidersHorizontal size={15} />}
+              key={filter.id}
+              label={filter.name}
+              onClick={() => {
+                setCriteria(filter.criteria);
+                chooseView({ kind: 'all' });
+              }}
+            />
+          ))}
+        </SidebarSection>
+
         <div className="sidebar-footer">
+          <NavButton
+            active={view.kind === 'history'}
+            icon={<History size={18} />}
+            label="操作记录"
+            onClick={() => chooseView({ kind: 'history' })}
+          />
           <NavButton
             active={view.kind === 'settings'}
             icon={<Settings size={18} />}
@@ -281,7 +356,11 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">{view.kind === 'calendar' ? '日历' : '任务'}</p>
-            <h1>{view.kind === 'calendar' ? calendarTitle(currentDate, calendarMode) : title}</h1>
+            <h1>
+              {view.kind === 'calendar'
+                ? calendarTitle(currentDate, calendarMode, settings.agendaDays)
+                : title}
+            </h1>
           </div>
           <div className="topbar-actions">
             <label className="search-box">
@@ -304,8 +383,13 @@ export function App() {
             <label className="filter-select">
               <span className="sr-only">按优先级筛选</span>
               <select
-                onChange={(event) => setPriority(event.target.value as Priority | 'all')}
-                value={priority}
+                onChange={(event) =>
+                  setCriteria((current) => ({
+                    ...current,
+                    priority: event.target.value as Priority | 'all',
+                  }))
+                }
+                value={criteria.priority}
               >
                 <option value="all">全部优先级</option>
                 {(['high', 'medium', 'low', 'none'] as Priority[]).map((item) => (
@@ -315,8 +399,29 @@ export function App() {
                 ))}
               </select>
             </label>
+            <button
+              aria-pressed={filterOpen}
+              className={`filter-toggle${filterOpen ? ' active' : ''}`}
+              onClick={() => setFilterOpen((open) => !open)}
+              type="button"
+            >
+              <SlidersHorizontal size={16} />
+              筛选
+            </button>
             {view.kind === 'calendar' && (
               <>
+                <input
+                  aria-label="跳转日期"
+                  className="date-jump"
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    const date = new Date(`${event.target.value}T12:00:00`);
+                    setCurrentDate(date);
+                    setSelectedDate(date);
+                  }}
+                  type="date"
+                  value={toDateKey(selectedDate)}
+                />
                 <div className="view-switcher" aria-label="日历视图">
                   {(['month', 'week', 'day', 'agenda'] as CalendarMode[]).map((mode) => (
                     <button
@@ -342,7 +447,9 @@ export function App() {
                 <button
                   className="icon-button"
                   aria-label="上一段时间"
-                  onClick={() => setCurrentDate(navigateDate(currentDate, calendarMode, -1))}
+                  onClick={() =>
+                    setCurrentDate(navigateDate(currentDate, calendarMode, -1, settings.agendaDays))
+                  }
                   type="button"
                 >
                   <ChevronLeft size={18} />
@@ -350,7 +457,9 @@ export function App() {
                 <button
                   className="icon-button"
                   aria-label="下一段时间"
-                  onClick={() => setCurrentDate(navigateDate(currentDate, calendarMode, 1))}
+                  onClick={() =>
+                    setCurrentDate(navigateDate(currentDate, calendarMode, 1, settings.agendaDays))
+                  }
                   type="button"
                 >
                   <ChevronRight size={18} />
@@ -359,6 +468,25 @@ export function App() {
             )}
           </div>
         </header>
+
+        {filterOpen && (
+          <FilterPanel
+            categories={categories}
+            criteria={criteria}
+            filters={filters}
+            onApply={setCriteria}
+            onClose={() => setFilterOpen(false)}
+            onDelete={async (id) => {
+              await deleteSavedFilter(id);
+              showToast('智能清单已删除.');
+            }}
+            onSave={async (name, nextCriteria) => {
+              await addSavedFilter(name, nextCriteria);
+              showToast('智能清单已保存.');
+            }}
+            tags={tags}
+          />
+        )}
 
         {view.kind === 'calendar' ? (
           <CalendarView
@@ -372,11 +500,12 @@ export function App() {
             }}
             onMove={async (taskId, dueDate, dueTime) => {
               await taskService.reschedule(taskId, dueDate, dueTime);
-              showToast('任务时间已调整.');
+              showToast('任务时间已调整.', true);
             }}
+            onQuickEdit={setQuickEditingTask}
             onResize={async (taskId, duration) => {
               await taskService.update(taskId, { duration });
-              showToast('任务时长已调整.');
+              showToast('任务时长已调整.', true);
             }}
             onSelectDate={(date) => {
               setSelectedDate(date);
@@ -387,6 +516,7 @@ export function App() {
               if (result.advanced) showToast('本次任务已完成, 下一次已安排.');
             }}
             selectedDate={selectedDate}
+            settings={settings}
             tasks={filteredTasks}
           />
         ) : view.kind === 'settings' ? (
@@ -418,6 +548,23 @@ export function App() {
                     : '未获得通知权限.',
               );
             }}
+            onUpdateSettings={async (patch) => {
+              await updateSettings(patch);
+              showToast('日历偏好已保存.');
+            }}
+            onDeleteTemplate={async (id) => {
+              await deleteTemplate(id);
+              showToast('任务模板已删除.');
+            }}
+            settings={settings}
+            templates={templates}
+          />
+        ) : view.kind === 'history' ? (
+          <HistoryView
+            activities={activities}
+            onUndo={async () => {
+              if (await taskService.undoLatest()) showToast('最近一次操作已撤销.');
+            }}
           />
         ) : view.kind === 'trash' ? (
           <TrashView
@@ -440,9 +587,13 @@ export function App() {
             categories={categories}
             emptyTitle={search ? '没有匹配的任务' : `${title}是空的`}
             onAdd={() => openNewTask(view.kind === 'today' ? toDateKey(today) : null)}
+            onBatchUpdate={async (ids, patch) => {
+              await taskService.batchUpdate(ids, patch);
+              showToast('批量修改已完成.', true);
+            }}
             onDuplicate={async (taskId) => {
               await taskService.duplicate(taskId);
-              showToast('任务副本已创建.');
+              showToast('任务副本已创建.', true);
             }}
             onEdit={(task) => {
               setEditingTask(task);
@@ -450,7 +601,19 @@ export function App() {
             }}
             onTrash={async (taskId) => {
               await taskService.trash(taskId);
-              showToast('任务已移到回收站.');
+              showToast('任务已移到回收站.', true);
+            }}
+            onReorder={async (sourceId, targetId) => {
+              const ordered = [...activeTasks]
+                .sort((left, right) => left.order - right.order)
+                .map((task) => task.id);
+              const source = ordered.indexOf(sourceId);
+              const target = ordered.indexOf(targetId);
+              if (source < 0 || target < 0) return;
+              const [moved] = ordered.splice(source, 1);
+              if (moved) ordered.splice(target, 0, moved);
+              await reorderTasks(ordered);
+              showToast('任务顺序已调整.');
             }}
             onToggle={async (taskId) => {
               const result = await taskService.complete(taskId);
@@ -471,12 +634,33 @@ export function App() {
           onClose={() => setTaskDialogOpen(false)}
           onDelete={async (id) => {
             await taskService.trash(id);
-            showToast('任务已移到回收站.');
+            showToast('任务已移到回收站.', true);
           }}
           onSave={saveTask}
+          onSaveTemplate={async (name, draft) => {
+            await addTemplate(name, draft);
+            showToast('任务模板已保存.');
+          }}
           open
           tags={tags}
           task={editingTask}
+          templates={templates}
+        />
+      )}
+      {quickEditingTask && (
+        <QuickEditPanel
+          categories={categories}
+          onClose={() => setQuickEditingTask(null)}
+          onFullEdit={(task) => {
+            setQuickEditingTask(null);
+            setEditingTask(task);
+            setTaskDialogOpen(true);
+          }}
+          onSave={async (id, patch) => {
+            await taskService.update(id, patch);
+            showToast('任务已快速更新.', true);
+          }}
+          task={quickEditingTask}
         />
       )}
       {collectionDialog && (
@@ -540,7 +724,17 @@ export function App() {
       {toast && (
         <div className="toast" role="status">
           <Check size={15} />
-          {toast}
+          {toast.message}
+          {toast.undo && (
+            <button
+              onClick={async () => {
+                if (await taskService.undoLatest()) showToast('操作已撤销.');
+              }}
+              type="button"
+            >
+              撤销
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -620,6 +814,7 @@ function getViewTitle(
   if (view.kind === 'today') return '今天';
   if (view.kind === 'inbox') return '收集箱';
   if (view.kind === 'all') return '全部任务';
+  if (view.kind === 'history') return '操作记录';
   if (view.kind === 'trash') return '回收站';
   if (view.kind === 'category')
     return categories.find((item) => item.id === view.id)?.name ?? '分类';
@@ -627,18 +822,18 @@ function getViewTitle(
   return '设置与数据';
 }
 
-function navigateDate(date: Date, mode: CalendarMode, amount: number): Date {
+function navigateDate(date: Date, mode: CalendarMode, amount: number, agendaDays: number): Date {
   if (mode === 'month') return addMonths(date, amount);
   if (mode === 'week') return addWeeks(date, amount);
-  if (mode === 'agenda') return addDays(date, amount * 14);
+  if (mode === 'agenda') return addDays(date, amount * agendaDays);
   return addDays(date, amount);
 }
 
-function calendarTitle(date: Date, mode: CalendarMode): string {
+function calendarTitle(date: Date, mode: CalendarMode, agendaDays: number): string {
   if (mode === 'month') return format(date, 'yyyy 年 M 月', { locale: zhCN });
   if (mode === 'day') return format(date, 'M 月 d 日 EEEE', { locale: zhCN });
   if (mode === 'agenda') {
-    return `${format(date, 'M 月 d 日')} - ${format(addDays(date, 13), 'M 月 d 日')}`;
+    return `${format(date, 'M 月 d 日')} - ${format(addDays(date, agendaDays - 1), 'M 月 d 日')}`;
   }
   const start = startOfWeek(date, { weekStartsOn: 1 });
   const end = addDays(start, 6);
@@ -651,16 +846,24 @@ function SettingsView({
   onExport,
   onImport,
   onRequestReminder,
+  onDeleteTemplate,
+  onUpdateSettings,
+  settings,
   tags,
   tasks,
+  templates,
 }: {
   categories: number;
   onClearCompleted: () => Promise<void>;
   onExport: () => Promise<void>;
   onImport: (file: File) => Promise<void>;
   onRequestReminder: () => Promise<void>;
+  onDeleteTemplate: (id: string) => Promise<void>;
+  onUpdateSettings: (patch: Partial<Omit<AppSettings, 'id'>>) => Promise<void>;
+  settings: AppSettings;
   tags: number;
   tasks: number;
+  templates: TaskTemplate[];
 }) {
   return (
     <section className="settings-view">
@@ -687,6 +890,101 @@ function SettingsView({
           <strong>{tags}</strong>
           <span>标签</span>
         </article>
+      </div>
+      <div className="settings-row">
+        <div>
+          <strong>日历显示</strong>
+          <p>设置密度, 周末和日程范围.</p>
+        </div>
+        <div className="settings-inline-fields">
+          <select
+            aria-label="日历密度"
+            onChange={(event) =>
+              void onUpdateSettings({
+                calendarDensity: event.target.value as AppSettings['calendarDensity'],
+              })
+            }
+            value={settings.calendarDensity}
+          >
+            <option value="comfortable">舒适</option>
+            <option value="compact">紧凑</option>
+          </select>
+          <select
+            aria-label="日程范围"
+            onChange={(event) =>
+              void onUpdateSettings({ agendaDays: Number(event.target.value) as 7 | 14 | 30 })
+            }
+            value={settings.agendaDays}
+          >
+            <option value="7">7 天</option>
+            <option value="14">14 天</option>
+            <option value="30">30 天</option>
+          </select>
+          <label>
+            <input
+              checked={settings.showWeekends}
+              onChange={(event) => void onUpdateSettings({ showWeekends: event.target.checked })}
+              type="checkbox"
+            />
+            显示周末
+          </label>
+        </div>
+      </div>
+      <div className="settings-row">
+        <div>
+          <strong>每日工作时间</strong>
+          <p>周视图和日视图仅展示这个时间范围.</p>
+        </div>
+        <div className="settings-inline-fields">
+          <label>
+            开始
+            <input
+              max={settings.workdayEnd - 1}
+              min={0}
+              onChange={(event) =>
+                void onUpdateSettings({ workdayStart: Number(event.target.value) })
+              }
+              type="number"
+              value={settings.workdayStart}
+            />
+          </label>
+          <label>
+            结束
+            <input
+              max={24}
+              min={settings.workdayStart + 1}
+              onChange={(event) =>
+                void onUpdateSettings({ workdayEnd: Number(event.target.value) })
+              }
+              type="number"
+              value={settings.workdayEnd}
+            />
+          </label>
+        </div>
+      </div>
+      <div className="settings-row template-settings-row">
+        <div>
+          <strong>任务模板</strong>
+          <p>在新建任务时快速复用常用内容.</p>
+        </div>
+        <div className="template-list">
+          {templates.length ? (
+            templates.map((template) => (
+              <span key={template.id}>
+                {template.name}
+                <button
+                  aria-label={`删除模板 ${template.name}`}
+                  onClick={() => void onDeleteTemplate(template.id)}
+                  type="button"
+                >
+                  <X size={13} />
+                </button>
+              </span>
+            ))
+          ) : (
+            <small>还没有模板.</small>
+          )}
+        </div>
       </div>
       <div className="settings-row">
         <div>
@@ -736,6 +1034,61 @@ function SettingsView({
           立即清理
         </button>
       </div>
+    </section>
+  );
+}
+
+function HistoryView({
+  activities,
+  onUndo,
+}: {
+  activities: ActivityRecord[];
+  onUndo: () => Promise<void>;
+}) {
+  const labels: Record<ActivityRecord['action'], string> = {
+    complete: '切换完成状态',
+    create: '创建任务',
+    duplicate: '复制任务',
+    restore: '恢复任务',
+    trash: '移到回收站',
+    update: '更新任务',
+  };
+  return (
+    <section className="list-view history-view">
+      <div className="list-view-heading">
+        <div>
+          <p>本地记录</p>
+          <h2>操作记录</h2>
+        </div>
+        {activities.length > 0 && (
+          <button className="secondary-button" onClick={() => void onUndo()} type="button">
+            <RotateCcw size={16} />
+            撤销最近操作
+          </button>
+        )}
+      </div>
+      {activities.length ? (
+        <div className="activity-list">
+          {activities.map((activity) => (
+            <article key={activity.id}>
+              <span>
+                <History size={16} />
+              </span>
+              <div>
+                <strong>{labels[activity.action]}</strong>
+                <p>{activity.after?.title ?? activity.before?.title ?? '任务'}</p>
+              </div>
+              <time>{format(new Date(activity.createdAt), 'M 月 d 日 HH:mm')}</time>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-list">
+          <History size={38} />
+          <h3>还没有操作记录</h3>
+          <p>任务的创建和修改会显示在这里.</p>
+        </div>
+      )}
     </section>
   );
 }

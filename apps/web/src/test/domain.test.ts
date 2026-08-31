@@ -10,8 +10,10 @@ function task(patch: Partial<Task>): Task {
     dueDate: null,
     dueTime: null,
     duration: 30,
+    endDate: null,
     id: crypto.randomUUID(),
     notes: '',
+    order: 0,
     priority: 'none',
     recurrence: null,
     reminderMinutes: null,
@@ -31,6 +33,13 @@ describe('任务领域规则', () => {
     const high = task({ dueDate: '2026-08-30', dueTime: '09:00', priority: 'high' });
 
     expect(sortTasks([completed, later, low, high])).toEqual([high, low, later, completed]);
+  });
+
+  it('优先保留用户手动调整的任务顺序', () => {
+    const first = task({ id: 'first', order: 1, title: '第一项' });
+    const second = task({ id: 'second', dueDate: '2026-08-01', order: 2, title: '第二项' });
+
+    expect(sortTasks([second, first])).toEqual([first, second]);
   });
 
   it('同时搜索标题和备注并忽略大小写', () => {
@@ -61,7 +70,19 @@ describe('任务领域规则', () => {
   });
 
   it('严格验证备份中的任务, 分类和标签', () => {
+    const backupTask = task({ id: 'task-1' });
     const value = {
+      activities: [
+        {
+          action: 'update',
+          after: backupTask,
+          before: backupTask,
+          createdAt: '2026-08-31T00:00:00.000Z',
+          groupId: 'group-1',
+          id: 'activity-1',
+          taskId: backupTask.id,
+        },
+      ],
       categories: [
         {
           color: '#ffffff',
@@ -72,6 +93,28 @@ describe('任务领域规则', () => {
         },
       ],
       exportedAt: '2026-08-31T00:00:00.000Z',
+      filters: [
+        {
+          createdAt: '2026-08-31T00:00:00.000Z',
+          criteria: {
+            categoryId: null,
+            dateRange: 'next7',
+            priority: 'all',
+            status: 'active',
+            tagIds: ['tag-1'],
+          },
+          id: 'filter-1',
+          name: '近期',
+        },
+      ],
+      settings: {
+        agendaDays: 14,
+        calendarDensity: 'comfortable',
+        id: 'default',
+        showWeekends: true,
+        workdayEnd: 22,
+        workdayStart: 7,
+      },
       tags: [
         {
           color: '#ffffff',
@@ -80,8 +123,16 @@ describe('任务领域规则', () => {
           name: '标签',
         },
       ],
-      tasks: [task({ id: 'task-1' })],
-      version: 1,
+      tasks: [backupTask],
+      templates: [
+        {
+          createdAt: '2026-08-31T00:00:00.000Z',
+          draft: backupTask,
+          id: 'template-1',
+          name: '模板',
+        },
+      ],
+      version: 2,
     };
 
     expect(isBackupPayload(value)).toBe(true);
@@ -91,6 +142,12 @@ describe('任务领域规则', () => {
     );
     expect(isBackupPayload({ ...value, categories: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, tags: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, templates: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, filters: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, activities: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, settings: { ...value.settings, workdayEnd: 5 } })).toBe(
+      false,
+    );
     expect(
       isBackupPayload({
         ...value,

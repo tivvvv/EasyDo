@@ -29,9 +29,11 @@ describe('任务编辑对话框', () => {
         onClose={() => undefined}
         onDelete={async () => undefined}
         onSave={onSave}
+        onSaveTemplate={async () => undefined}
         open
         tags={tags}
         task={null}
+        templates={[]}
       />,
     );
 
@@ -51,6 +53,7 @@ describe('任务编辑对话框', () => {
         title: '完成版本验收',
       }),
       undefined,
+      undefined,
     );
   });
 
@@ -65,9 +68,11 @@ describe('任务编辑对话框', () => {
         onClose={() => undefined}
         onDelete={async () => undefined}
         onSave={onSave}
+        onSaveTemplate={async () => undefined}
         open
         tags={tags}
         task={null}
+        templates={[]}
       />,
     );
 
@@ -85,6 +90,7 @@ describe('任务编辑对话框', () => {
         reminderMinutes: 10,
         subtasks: [expect.objectContaining({ title: '记录成果' })],
       }),
+      undefined,
       undefined,
     );
   });

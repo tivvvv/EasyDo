@@ -1,20 +1,25 @@
 import {
   EasyDoDatabase,
   addCategory,
+  addSavedFilter,
   addTag,
   addTask,
+  addTemplate,
   deleteCategory,
   deleteTag,
   deleteTask,
   DexieTaskRepository,
+  DexieActivityRepository,
   emptyTrash,
   exportBackup,
   initializeDatabase,
   replaceFromBackup,
+  reorderTasks,
   reorderCategories,
   toggleTask,
   updateCategory,
   updateTag,
+  updateSettings,
   updateTask,
 } from '@easydo/storage';
 
@@ -35,6 +40,7 @@ describe('本地数据仓库', () => {
     expect(await database.categories.count()).toBe(3);
     expect(await database.tags.count()).toBe(2);
     expect(await database.tasks.count()).toBe(3);
+    expect(await database.settings.get('default')).toMatchObject({ agendaDays: 14 });
   });
 
   it('已有分类时不重复写入引导数据', async () => {
@@ -58,6 +64,7 @@ describe('本地数据仓库', () => {
         dueDate: '2026-09-01',
         dueTime: '10:30',
         duration: 45,
+        endDate: null,
         notes: '测试备注',
         priority: 'high',
         recurrence: null,
@@ -157,6 +164,69 @@ describe('本地数据仓库', () => {
     expect(await database.tasks.count()).toBe(backup.tasks.length);
     expect(await database.categories.count()).toBe(backup.categories.length);
     expect(await database.tags.count()).toBe(backup.tags.length);
+    expect((await database.settings.get('default'))?.calendarDensity).toBe('comfortable');
+  });
+
+  it('保存日历偏好, 智能清单和任务模板', async () => {
+    await initializeDatabase(database);
+    await updateSettings({ calendarDensity: 'compact', showWeekends: false }, database);
+    const filter = await addSavedFilter(
+      '未来工作',
+      {
+        categoryId: 'category-work',
+        dateRange: 'next7',
+        priority: 'all',
+        status: 'active',
+        tagIds: [],
+      },
+      database,
+    );
+    const template = await addTemplate(
+      '快速任务',
+      {
+        categoryId: 'category-work',
+        dueDate: null,
+        dueTime: null,
+        duration: 30,
+        endDate: null,
+        notes: '',
+        priority: 'none',
+        recurrence: null,
+        reminderMinutes: null,
+        subtasks: [],
+        tagIds: [],
+        title: '模板任务',
+      },
+      database,
+    );
+    expect(await database.settings.get('default')).toMatchObject({
+      calendarDensity: 'compact',
+      showWeekends: false,
+    });
+    expect(await database.filters.get(filter.id)).toBeDefined();
+    expect(await database.templates.get(template.id)).toBeDefined();
+  });
+
+  it('重排任务并读写操作记录', async () => {
+    await initializeDatabase(database);
+    const tasks = await database.tasks.orderBy('order').toArray();
+    await reorderTasks(tasks.map((task) => task.id).reverse(), database);
+    expect((await database.tasks.orderBy('order').first())?.id).toBe(tasks.at(-1)?.id);
+    const activities = new DexieActivityRepository(database);
+    const activity = {
+      action: 'update' as const,
+      after: tasks[0]!,
+      before: tasks[0]!,
+      createdAt: new Date().toISOString(),
+      groupId: 'group-1',
+      id: 'activity-1',
+      taskId: tasks[0]!.id,
+    };
+    await activities.add(activity);
+    expect((await activities.getLatest())?.id).toBe(activity.id);
+    expect(await activities.getByGroup('group-1')).toHaveLength(1);
+    await activities.delete(activity.id);
+    expect(await activities.getLatest()).toBeUndefined();
   });
 
   it('仅永久清理回收站任务', async () => {

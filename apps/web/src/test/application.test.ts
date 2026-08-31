@@ -1,17 +1,22 @@
 import type { Task, TaskDraft } from '@easydo/domain';
 import {
   getPendingReminders,
+  matchesFilter,
   nextRecurrenceDate,
   parseBackup,
+  taskHasConflict,
   TaskApplicationService,
+  type ActivityRepository,
   type TaskRepository,
 } from '@easydo/application';
+import type { ActivityRecord } from '@easydo/domain';
 
 const draft: TaskDraft = {
   categoryId: 'category-work',
   dueDate: '2026-08-31',
   dueTime: '09:00',
   duration: 30,
+  endDate: null,
   notes: '',
   priority: 'medium',
   recurrence: null,
@@ -42,6 +47,23 @@ class MemoryRepository implements TaskRepository {
   }
 }
 
+class MemoryActivities implements ActivityRepository {
+  readonly records: ActivityRecord[] = [];
+  async add(activity: ActivityRecord): Promise<void> {
+    this.records.push(activity);
+  }
+  async delete(id: string): Promise<void> {
+    const index = this.records.findIndex((item) => item.id === id);
+    if (index >= 0) this.records.splice(index, 1);
+  }
+  async getByGroup(groupId: string): Promise<ActivityRecord[]> {
+    return this.records.filter((item) => item.groupId === groupId);
+  }
+  async getLatest(): Promise<ActivityRecord | undefined> {
+    return this.records.at(-1);
+  }
+}
+
 describe('任务应用服务', () => {
   it('创建, 更新, 回收, 恢复和永久删除任务', async () => {
     const repository = new MemoryRepository();
@@ -62,6 +84,69 @@ describe('任务应用服务', () => {
     });
     await service.purge(created.id);
     expect(repository.tasks.has(created.id)).toBe(false);
+  });
+
+  it('记录并撤销最近一次任务修改', async () => {
+    const repository = new MemoryRepository();
+    const activities = new MemoryActivities();
+    const service = new TaskApplicationService(repository, activities);
+    const created = await service.create(draft);
+    await service.update(created.id, { title: '修改后' });
+    expect(activities.records.at(-1)?.action).toBe('update');
+    expect(await service.undoLatest()).toBe(true);
+    expect(repository.tasks.get(created.id)?.title).toBe('测试任务');
+  });
+
+  it('将同一批次修改作为一个整体撤销', async () => {
+    const repository = new MemoryRepository();
+    const activities = new MemoryActivities();
+    const service = new TaskApplicationService(repository, activities);
+    const first = await service.create({ ...draft, title: '第一项' });
+    const second = await service.create({ ...draft, title: '第二项' });
+
+    await service.batchUpdate([first.id, second.id], { priority: 'high' });
+    await service.undoLatest();
+
+    expect(repository.tasks.get(first.id)?.priority).toBe('medium');
+    expect(repository.tasks.get(second.id)?.priority).toBe('medium');
+    expect(activities.records.filter((item) => item.action === 'update')).toHaveLength(0);
+  });
+
+  it('仅修改重复任务本次并保留后续系列', async () => {
+    const repository = new MemoryRepository();
+    const activities = new MemoryActivities();
+    const service = new TaskApplicationService(repository, activities);
+    const created = await service.create({
+      ...draft,
+      recurrence: { endsOn: null, frequency: 'daily', interval: 1, weekDays: [] },
+    });
+    await service.updateRecurring(created.id, { ...draft, title: '仅本次修改' }, 'current');
+    expect(repository.tasks.size).toBe(2);
+    expect(repository.tasks.get(created.id)).toMatchObject({
+      recurrence: null,
+      title: '仅本次修改',
+    });
+    expect([...repository.tasks.values()].find((task) => task.id !== created.id)).toMatchObject({
+      dueDate: '2026-09-01',
+      recurrence: expect.objectContaining({ frequency: 'daily' }),
+    });
+    await service.undoLatest();
+    expect(repository.tasks.size).toBe(1);
+    expect(repository.tasks.get(created.id)).toMatchObject({
+      recurrence: expect.objectContaining({ frequency: 'daily' }),
+      title: '测试任务',
+    });
+  });
+
+  it('移动跨天任务时保留持续天数', async () => {
+    const repository = new MemoryRepository();
+    const service = new TaskApplicationService(repository);
+    const created = await service.create({ ...draft, endDate: '2026-09-02' });
+    await service.reschedule(created.id, '2026-09-10');
+    expect(repository.tasks.get(created.id)).toMatchObject({
+      dueDate: '2026-09-10',
+      endDate: '2026-09-12',
+    });
   });
 
   it('拒绝空标题和不存在的任务操作', async () => {
@@ -87,7 +172,8 @@ describe('任务应用服务', () => {
 
   it('完成重复任务后保留历史并安排下一次', async () => {
     const repository = new MemoryRepository();
-    const service = new TaskApplicationService(repository);
+    const activities = new MemoryActivities();
+    const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
       recurrence: { endsOn: null, frequency: 'daily', interval: 2, weekDays: [] },
@@ -101,11 +187,18 @@ describe('任务应用服务', () => {
     expect(
       [...repository.tasks.values()].find((task) => task.id !== created.id)?.completedAt,
     ).not.toBeNull();
+    await service.undoLatest();
+    expect(repository.tasks.size).toBe(1);
+    expect(repository.tasks.get(created.id)).toMatchObject({
+      completedAt: null,
+      dueDate: '2026-08-31',
+    });
   });
 
   it('复制任务时重置子任务状态和标识', async () => {
     const repository = new MemoryRepository();
-    const service = new TaskApplicationService(repository);
+    const activities = new MemoryActivities();
+    const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
       subtasks: [{ completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-old', title: '步骤' }],
@@ -115,6 +208,7 @@ describe('任务应用服务', () => {
     expect(duplicate.title).toBe('测试任务 副本');
     expect(duplicate.subtasks[0]?.completedAt).toBeNull();
     expect(duplicate.subtasks[0]?.id).not.toBe('subtask-old');
+    expect(activities.records.map((activity) => activity.action)).toEqual(['create', 'duplicate']);
   });
 });
 
@@ -177,6 +271,7 @@ describe('重复日期和提醒规则', () => {
       createdAt: '2026-08-31T00:00:00.000Z',
       deletedAt: null,
       id: 'task-reminder',
+      order: 0,
       updatedAt: '2026-08-31T00:00:00.000Z',
     };
     expect(getPendingReminders([task], new Date('2026-08-31T08:55:00'), new Set())).toEqual([task]);
@@ -210,7 +305,7 @@ describe('重复日期和提醒规则', () => {
           version: 1,
         }),
       ),
-    ).toMatchObject({ version: 1 });
+    ).toMatchObject({ version: 2 });
     expect(() => parseBackup('{"version":2}')).toThrow('备份文件格式不正确.');
     expect(() =>
       parseBackup(
@@ -223,5 +318,54 @@ describe('重复日期和提醒规则', () => {
         }),
       ),
     ).toThrow('备份文件格式不正确.');
+  });
+});
+
+describe('智能筛选和日程冲突', () => {
+  const candidate = (): Task => ({
+    ...draft,
+    completedAt: null,
+    createdAt: '2026-08-31T00:00:00.000Z',
+    deletedAt: null,
+    id: crypto.randomUUID(),
+    order: 0,
+    updatedAt: '2026-08-31T00:00:00.000Z',
+  });
+
+  it('组合匹配日期, 分类, 标签和优先级', () => {
+    const task = candidate();
+    expect(
+      matchesFilter(
+        task,
+        {
+          categoryId: 'category-work',
+          dateRange: 'next7',
+          priority: 'medium',
+          status: 'active',
+          tagIds: [],
+        },
+        '2026-08-31',
+      ),
+    ).toBe(true);
+    expect(
+      matchesFilter(
+        task,
+        {
+          categoryId: null,
+          dateRange: 'overdue',
+          priority: 'all',
+          status: 'active',
+          tagIds: [],
+        },
+        '2026-09-01',
+      ),
+    ).toBe(true);
+  });
+
+  it('识别同一天时间重叠的任务', () => {
+    const first = candidate();
+    const second = { ...candidate(), dueTime: '09:15' };
+    expect(taskHasConflict(first, [first, second])).toBe(true);
+    expect(taskHasConflict({ ...first, dueTime: null }, [second])).toBe(false);
   });
 });

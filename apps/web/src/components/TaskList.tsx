@@ -1,4 +1,4 @@
-import type { Category, Tag, Task } from '@easydo/domain';
+import type { Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
@@ -20,9 +20,11 @@ type TaskListProps = {
   categories: Category[];
   emptyTitle: string;
   onAdd: () => void;
+  onBatchUpdate: (taskIds: string[], patch: Partial<TaskDraft>) => Promise<void>;
   onDuplicate: (taskId: string) => Promise<void>;
   onEdit: (task: Task) => void;
   onTrash: (taskId: string) => Promise<void>;
+  onReorder: (sourceId: string, targetId: string) => Promise<void>;
   onToggle: (taskId: string) => Promise<void>;
   tags: Tag[];
   tasks: Task[];
@@ -33,9 +35,11 @@ export function TaskList({
   categories,
   emptyTitle,
   onAdd,
+  onBatchUpdate,
   onDuplicate,
   onEdit,
   onTrash,
+  onReorder,
   onToggle,
   tags,
   tasks,
@@ -46,6 +50,9 @@ export function TaskList({
   const active = tasks.filter((task) => !task.completedAt);
   const completed = tasks.filter((task) => task.completedAt);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchCategory, setBatchCategory] = useState('');
+  const [batchDate, setBatchDate] = useState('');
+  const [batchPriority, setBatchPriority] = useState<Priority | ''>('');
   const visibleSelectedIds = selectedIds.filter((id) => tasks.some((task) => task.id === id));
 
   const toggleSelected = (taskId: string) => {
@@ -90,6 +97,52 @@ export function TaskList({
             <Copy size={15} />
             创建副本
           </button>
+          <select
+            aria-label="批量修改分类"
+            onChange={(event) => setBatchCategory(event.target.value)}
+            value={batchCategory}
+          >
+            <option value="">分类</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="批量修改优先级"
+            onChange={(event) => setBatchPriority(event.target.value as Priority | '')}
+            value={batchPriority}
+          >
+            <option value="">优先级</option>
+            <option value="none">无</option>
+            <option value="low">低</option>
+            <option value="medium">中</option>
+            <option value="high">高</option>
+          </select>
+          <input
+            aria-label="批量修改日期"
+            onChange={(event) => setBatchDate(event.target.value)}
+            type="date"
+            value={batchDate}
+          />
+          <button
+            disabled={!batchCategory && !batchDate && !batchPriority}
+            onClick={async () => {
+              await onBatchUpdate(visibleSelectedIds, {
+                ...(batchCategory ? { categoryId: batchCategory } : {}),
+                ...(batchDate ? { dueDate: batchDate } : {}),
+                ...(batchPriority ? { priority: batchPriority } : {}),
+              });
+              setBatchCategory('');
+              setBatchDate('');
+              setBatchPriority('');
+              setSelectedIds([]);
+            }}
+            type="button"
+          >
+            应用修改
+          </button>
           <button className="danger" onClick={() => void runBatch(onTrash)} type="button">
             <Trash2 size={15} />
             移到回收站
@@ -106,6 +159,7 @@ export function TaskList({
               category={categoryMap.get(task.categoryId)}
               key={task.id}
               onEdit={onEdit}
+              onReorder={onReorder}
               onSelect={toggleSelected}
               onToggle={onToggle}
               selected={selectedIds.includes(task.id)}
@@ -121,6 +175,7 @@ export function TaskList({
                   category={categoryMap.get(task.categoryId)}
                   key={task.id}
                   onEdit={onEdit}
+                  onReorder={onReorder}
                   onSelect={toggleSelected}
                   onToggle={onToggle}
                   selected={selectedIds.includes(task.id)}
@@ -149,6 +204,7 @@ export function TaskList({
 type TaskRowProps = {
   category?: Category;
   onEdit: (task: Task) => void;
+  onReorder: (sourceId: string, targetId: string) => Promise<void>;
   onSelect: (taskId: string) => void;
   onToggle: (taskId: string) => Promise<void>;
   selected: boolean;
@@ -156,11 +212,27 @@ type TaskRowProps = {
   task: Task;
 };
 
-function TaskRow({ category, onEdit, onSelect, onToggle, selected, tagMap, task }: TaskRowProps) {
+function TaskRow({
+  category,
+  onEdit,
+  onReorder,
+  onSelect,
+  onToggle,
+  selected,
+  tagMap,
+  task,
+}: TaskRowProps) {
   const progress = taskProgress(task);
   return (
     <article
       className={`task-row ${task.priority}${task.completedAt ? ' completed' : ''}${selected ? ' selected' : ''}`}
+      draggable={!task.completedAt}
+      onDragOver={(event) => event.preventDefault()}
+      onDragStart={(event) => event.dataTransfer.setData('text/task-order-id', task.id)}
+      onDrop={(event) => {
+        const sourceId = event.dataTransfer.getData('text/task-order-id');
+        if (sourceId && sourceId !== task.id) void onReorder(sourceId, task.id);
+      }}
     >
       <input
         aria-label={`选择 ${task.title}`}

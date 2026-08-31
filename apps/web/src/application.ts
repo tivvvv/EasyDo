@@ -1,4 +1,7 @@
 import { TaskApplicationService } from '@easydo/application';
-import { DexieTaskRepository } from '@easydo/storage';
+import { DexieActivityRepository, DexieTaskRepository } from '@easydo/storage';
 
-export const taskService = new TaskApplicationService(new DexieTaskRepository());
+export const taskService = new TaskApplicationService(
+  new DexieTaskRepository(),
+  new DexieActivityRepository(),
+);

@@ -68,6 +68,7 @@ test('管理重复任务, 子任务和回收站', async ({ page, isMobile }) => 
   await page.getByRole('button', { name: '创建任务' }).click();
 
   await page.getByText('每日验收任务').first().click();
+  await page.getByRole('button', { name: '完整编辑' }).click();
   await expect(page.getByRole('textbox', { name: '子任务 1' })).toHaveValue('检查日程');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: '删除', exact: true }).click();
@@ -91,4 +92,78 @@ test('编辑标签并打开数据设置', async ({ page, isMobile }) => {
   await expect(page.getByText('备份与恢复')).toBeVisible();
   await expect(page.getByRole('button', { name: '导出' })).toBeVisible();
   await expect(page.getByText('任务提醒')).toBeVisible();
+});
+
+test('快速编辑, 跨天任务和智能清单', async ({ page, isMobile }) => {
+  test.skip(isMobile, '高级日历流程由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByText('规划今天最重要的三件事').first().click();
+  await expect(page.getByRole('region', { name: /快速编辑/ })).toBeVisible();
+  await page.getByLabel('快速编辑标题').fill('快速编辑后的任务');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('任务已快速更新.')).toBeVisible();
+
+  await page
+    .getByRole('button', { name: /添加任务/ })
+    .first()
+    .click();
+  await page.getByLabel('任务标题').fill('跨天验收任务');
+  const start = await page.getByLabel('日期', { exact: true }).inputValue();
+  const end = new Date(`${start}T12:00:00`);
+  end.setDate(end.getDate() + 1);
+  await page.getByLabel('结束日期').fill(end.toISOString().slice(0, 10));
+  await page.getByRole('button', { name: '创建任务' }).click();
+  await expect(page.getByText('跨天验收任务').first()).toBeVisible();
+
+  await page.getByRole('button', { name: '筛选' }).click();
+  await page.getByLabel('日期范围').selectOption('next7');
+  page.once('dialog', (dialog) => dialog.accept('近期重点'));
+  await page.getByRole('button', { name: /保存为智能清单/ }).click();
+  await expect(
+    page.getByRole('complementary').getByRole('button', { exact: true, name: '近期重点' }),
+  ).toBeVisible();
+});
+
+test('任务模板, 批量修改和撤销', async ({ page, isMobile }) => {
+  test.skip(isMobile, '批量管理流程由桌面端覆盖.');
+  await page.goto('/');
+  await page
+    .getByRole('button', { name: /添加任务/ })
+    .first()
+    .click();
+  await page.getByLabel('任务标题').fill('模板验收任务');
+  page.once('dialog', (dialog) => dialog.accept('每日模板'));
+  await page.getByRole('button', { name: /保存模板/ }).click();
+  await expect(page.getByText('任务模板已保存.')).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
+  await page
+    .getByRole('button', { name: /添加任务/ })
+    .first()
+    .click();
+  await page.getByLabel('从模板创建').selectOption({ label: '每日模板' });
+  await expect(page.getByLabel('任务标题')).toHaveValue('模板验收任务');
+  await page.getByRole('button', { name: '取消' }).click();
+
+  await page.getByRole('button', { name: /全部任务/ }).click();
+  const checkboxes = page.locator('.task-select');
+  await checkboxes.nth(0).check();
+  await checkboxes.nth(1).check();
+  await page.getByLabel('批量修改优先级').selectOption('high');
+  await page.getByRole('button', { name: '应用修改' }).click();
+  await expect(page.getByText('批量修改已完成.')).toBeVisible();
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(page.getByText('操作已撤销.')).toBeVisible();
+});
+
+test('保存日历显示偏好和查看操作记录', async ({ page, isMobile }) => {
+  test.skip(isMobile, '设置管理流程由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置与数据' }).click();
+  await page.getByLabel('日历密度').selectOption('compact');
+  await page.getByLabel('日程范围').selectOption('7');
+  await page.getByLabel('显示周末').click();
+  await expect(page.getByLabel('显示周末')).not.toBeChecked();
+  await expect(page.getByText('日历偏好已保存.')).toBeVisible();
+  await page.getByRole('button', { name: '操作记录' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: '操作记录' })).toBeVisible();
 });

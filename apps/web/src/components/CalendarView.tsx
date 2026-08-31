@@ -1,7 +1,9 @@
-import type { Category, Task } from '@easydo/domain';
+import type { AppSettings, Category, Task } from '@easydo/domain';
+import { taskHasConflict } from '@easydo/application';
 import { addDays, format, isSameDay, isSameMonth, isToday, startOfDay } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { CalendarDays, Check, CirclePlus, Clock3, GripVertical, Inbox } from 'lucide-react';
+import { useState } from 'react';
 
 import { getMonthDays, getWeekDays, minutesFromTime, toDateKey } from '../lib/calendar';
 
@@ -14,10 +16,12 @@ type CalendarViewProps = {
   onAdd: (date: string, time?: string | null) => void;
   onEdit: (task: Task) => void;
   onMove: (taskId: string, date: string, time?: string | null) => Promise<void>;
+  onQuickEdit: (task: Task) => void;
   onResize: (taskId: string, duration: number) => Promise<void>;
   onSelectDate: (date: Date) => void;
   onToggle: (taskId: string) => Promise<void>;
   selectedDate: Date;
+  settings: AppSettings;
   tasks: Task[];
 };
 
@@ -41,26 +45,29 @@ function MonthCalendar({
   onAdd,
   onEdit,
   onMove,
+  onQuickEdit,
   onSelectDate,
   onToggle,
   selectedDate,
+  settings,
   tasks,
 }: CalendarViewProps) {
   const categoryColors = new Map(categories.map((category) => [category.id, category.color]));
-  const days = getMonthDays(currentDate);
+  const days = getMonthDays(currentDate).filter((day) => propsShowDay(day, settings.showWeekends));
+  const visibleWeekNames = settings.showWeekends ? weekNames : weekNames.slice(0, 5);
 
   return (
     <section className="calendar-layout">
-      <div className="calendar-card">
+      <div className={`calendar-card${settings.showWeekends ? '' : ' no-weekends'}`}>
         <div className="weekday-row">
-          {weekNames.map((day) => (
+          {visibleWeekNames.map((day) => (
             <span key={day}>{day}</span>
           ))}
         </div>
         <div className="month-grid">
           {days.map((day) => {
             const dateKey = toDateKey(day);
-            const dayTasks = tasks.filter((task) => task.dueDate === dateKey);
+            const dayTasks = tasks.filter((task) => isTaskOnDate(task, dateKey));
             const selected = isSameDay(day, selectedDate);
 
             return (
@@ -92,6 +99,10 @@ function MonthCalendar({
                       draggable
                       key={task.id}
                       onClick={(event) => {
+                        event.stopPropagation();
+                        onQuickEdit(task);
+                      }}
+                      onDoubleClick={(event) => {
                         event.stopPropagation();
                         onEdit(task);
                       }}
@@ -130,7 +141,7 @@ function MonthCalendar({
         onEdit={onEdit}
         onSelectDate={onSelectDate}
         onToggle={onToggle}
-        tasks={tasks.filter((task) => task.dueDate === toDateKey(selectedDate))}
+        tasks={tasks.filter((task) => isTaskOnDate(task, toDateKey(selectedDate)))}
       />
     </section>
   );
@@ -143,18 +154,27 @@ function TimeCalendar({
   onAdd,
   onEdit,
   onMove,
+  onQuickEdit,
   onResize,
+  settings,
   tasks,
 }: CalendarViewProps) {
-  const days = mode === 'week' ? getWeekDays(currentDate) : [currentDate];
+  const days = (mode === 'week' ? getWeekDays(currentDate) : [currentDate]).filter((day) =>
+    propsShowDay(day, settings.showWeekends),
+  );
   const categoryColors = new Map(categories.map((category) => [category.id, category.color]));
-  const hours = Array.from({ length: 15 }, (_, index) => index + 7);
-  const calendarHeight = hours.length * 56;
+  const hours = Array.from(
+    { length: settings.workdayEnd - settings.workdayStart + 1 },
+    (_, index) => index + settings.workdayStart,
+  );
+  const hourHeight = settings.calendarDensity === 'compact' ? 42 : 56;
+  const calendarHeight = (settings.workdayEnd - settings.workdayStart) * hourHeight;
+  const [dragPreview, setDragPreview] = useState<{ date: string; time: string } | null>(null);
 
   const unscheduled = tasks.filter((task) => !task.dueDate && !task.completedAt);
 
   return (
-    <section className={`time-calendar ${mode}`}>
+    <section className={`time-calendar ${mode} ${settings.calendarDensity}`}>
       {unscheduled.length > 0 && (
         <div className="unscheduled-tray">
           <span>
@@ -196,14 +216,27 @@ function TimeCalendar({
         {days.map((day) => {
           const dateKey = toDateKey(day);
           return (
-            <div key={dateKey}>
+            <div
+              key={dateKey}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                const taskId = event.dataTransfer.getData('text/task-id');
+                if (taskId) void onMove(taskId, dateKey, null);
+              }}
+            >
               {tasks
-                .filter((task) => task.dueDate === dateKey && !task.dueTime)
+                .filter(
+                  (task) =>
+                    isTaskOnDate(task, dateKey) && (!task.dueTime || task.dueDate !== dateKey),
+                )
                 .map((task) => (
                   <button
                     className={`all-day-task ${task.priority}`}
+                    draggable
                     key={task.id}
-                    onClick={() => onEdit(task)}
+                    onClick={() => onQuickEdit(task)}
+                    onDoubleClick={() => onEdit(task)}
+                    onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
                     type="button"
                   >
                     <i style={{ background: categoryColors.get(task.categoryId) }} />
@@ -219,7 +252,7 @@ function TimeCalendar({
           {hours.map((hour) => (
             <span
               key={hour}
-              style={{ top: (hour - 7) * 56 }}
+              style={{ top: (hour - settings.workdayStart) * hourHeight }}
             >{`${String(hour).padStart(2, '0')}:00`}</span>
           ))}
         </div>
@@ -231,26 +264,88 @@ function TimeCalendar({
               <div
                 className="schedule-column"
                 key={dateKey}
-                onDoubleClick={(event) => onAdd(dateKey, timeFromPointer(event))}
-                onDragOver={(event) => event.preventDefault()}
+                onDoubleClick={(event) =>
+                  onAdd(
+                    dateKey,
+                    timeFromPointer(event, settings.workdayStart, settings.workdayEnd, hourHeight),
+                  )
+                }
+                onDragLeave={() => setDragPreview(null)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragPreview({
+                    date: dateKey,
+                    time: timeFromPointer(
+                      event,
+                      settings.workdayStart,
+                      settings.workdayEnd,
+                      hourHeight,
+                    ),
+                  });
+                }}
                 onDrop={(event) => {
                   const taskId = event.dataTransfer.getData('text/task-id');
-                  if (taskId) void onMove(taskId, dateKey, timeFromPointer(event));
+                  if (taskId)
+                    void onMove(
+                      taskId,
+                      dateKey,
+                      timeFromPointer(
+                        event,
+                        settings.workdayStart,
+                        settings.workdayEnd,
+                        hourHeight,
+                      ),
+                    );
+                  setDragPreview(null);
                 }}
                 style={{ height: calendarHeight }}
               >
                 {hours.map((hour) => (
-                  <i className="hour-line" key={hour} style={{ top: (hour - 7) * 56 }} />
+                  <i
+                    className="hour-line"
+                    key={hour}
+                    style={{ top: (hour - settings.workdayStart) * hourHeight }}
+                  />
                 ))}
+                {isToday(day) &&
+                  currentTimeTop(settings.workdayStart, hourHeight) >= 0 &&
+                  currentTimeTop(settings.workdayStart, hourHeight) <= calendarHeight && (
+                    <span
+                      className="current-time-line"
+                      style={{ top: currentTimeTop(settings.workdayStart, hourHeight) }}
+                    >
+                      <i />
+                      现在
+                    </span>
+                  )}
+                {dragPreview?.date === dateKey && (
+                  <span
+                    className="drag-time-preview"
+                    style={{
+                      top:
+                        ((minutesFromTime(dragPreview.time) - settings.workdayStart * 60) / 60) *
+                        hourHeight,
+                    }}
+                  >
+                    {dragPreview.time}
+                  </span>
+                )}
                 {layoutTimedTasks(timedTasks).map(({ column, columns, task }) => {
-                  const top = Math.max(0, ((minutesFromTime(task.dueTime) - 7 * 60) / 60) * 56);
-                  const height = Math.max(30, Math.min(112, (task.duration / 60) * 56));
+                  const top = Math.max(
+                    0,
+                    ((minutesFromTime(task.dueTime) - settings.workdayStart * 60) / 60) *
+                      hourHeight,
+                  );
+                  const height = Math.max(26, (task.duration / 60) * hourHeight);
+                  const conflict = taskHasConflict(task, tasks);
+                  const overdue = isTaskOverdue(task);
                   return (
                     <button
-                      className={`timed-task ${task.priority}${task.completedAt ? ' completed' : ''}`}
+                      className={`timed-task ${task.priority}${task.completedAt ? ' completed' : ''}${conflict ? ' conflict' : ''}${overdue ? ' overdue' : ''}`}
                       draggable
                       key={task.id}
-                      onClick={() => onEdit(task)}
+                      onClick={() => onQuickEdit(task)}
+                      onDoubleClick={() => onEdit(task)}
                       onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
                       style={{
                         borderColor: categoryColors.get(task.categoryId),
@@ -289,12 +384,13 @@ function TimeCalendar({
                             const next = Math.max(
                               15,
                               Math.round(
-                                (startDuration + ((moveEvent.clientY - startY) / 56) * 60) / 15,
+                                (startDuration + ((moveEvent.clientY - startY) / hourHeight) * 60) /
+                                  15,
                               ) * 15,
                             );
                             event.currentTarget.parentElement?.style.setProperty(
                               'height',
-                              `${Math.max(30, (next / 60) * 56)}px`,
+                              `${Math.max(26, (next / 60) * hourHeight)}px`,
                             );
                           };
                           const handleUp = (upEvent: PointerEvent) => {
@@ -303,7 +399,8 @@ function TimeCalendar({
                             const next = Math.max(
                               15,
                               Math.round(
-                                (startDuration + ((upEvent.clientY - startY) / 56) * 60) / 15,
+                                (startDuration + ((upEvent.clientY - startY) / hourHeight) * 60) /
+                                  15,
                               ) * 15,
                             );
                             void onResize(task.id, next);
@@ -430,18 +527,22 @@ function AgendaCalendar({
   currentDate,
   onAdd,
   onEdit,
+  onQuickEdit,
   onToggle,
+  settings,
   tasks,
 }: CalendarViewProps) {
   const start = startOfDay(currentDate);
-  const days = Array.from({ length: 14 }, (_, index) => addDays(start, index));
+  const days = Array.from({ length: settings.agendaDays }, (_, index) =>
+    addDays(start, index),
+  ).filter((day) => propsShowDay(day, settings.showWeekends));
   const categoryMap = new Map(categories.map((category) => [category.id, category]));
 
   return (
     <section className="agenda-calendar">
       {days.map((day) => {
         const dateKey = toDateKey(day);
-        const dayTasks = tasks.filter((task) => task.dueDate === dateKey);
+        const dayTasks = tasks.filter((task) => isTaskOnDate(task, dateKey));
         if (!dayTasks.length && !isToday(day)) return null;
         return (
           <article className="agenda-day" key={dateKey}>
@@ -461,7 +562,8 @@ function AgendaCalendar({
                   <button
                     className={task.completedAt ? 'completed' : ''}
                     key={task.id}
-                    onClick={() => onEdit(task)}
+                    onClick={() => onQuickEdit(task)}
+                    onDoubleClick={() => onEdit(task)}
                     type="button"
                   >
                     <span className="agenda-time">{task.dueTime ?? '全天'}</span>
@@ -492,24 +594,49 @@ function AgendaCalendar({
       {!tasks.some((task) => task.dueDate && task.dueDate >= toDateKey(start)) && (
         <div className="empty-agenda">
           <CalendarDays size={34} />
-          <p>未来 14 天还没有任务</p>
+          <p>未来 {settings.agendaDays} 天还没有任务</p>
         </div>
       )}
     </section>
   );
 }
 
-function timeFromPointer(event: {
-  clientY: number;
-  currentTarget: EventTarget & HTMLElement;
-}): string {
+function timeFromPointer(
+  event: { clientY: number; currentTarget: EventTarget & HTMLElement },
+  workdayStart: number,
+  workdayEnd: number,
+  hourHeight: number,
+): string {
   const rect = event.currentTarget.getBoundingClientRect();
   const minutes = Math.max(
-    7 * 60,
-    Math.min(21 * 60 + 45, 7 * 60 + ((event.clientY - rect.top) / 56) * 60),
+    workdayStart * 60,
+    Math.min(
+      workdayEnd * 60 - 15,
+      workdayStart * 60 + ((event.clientY - rect.top) / hourHeight) * 60,
+    ),
   );
   const snapped = Math.round(minutes / 15) * 15;
   return `${String(Math.floor(snapped / 60)).padStart(2, '0')}:${String(snapped % 60).padStart(2, '0')}`;
+}
+
+function propsShowDay(day: Date, showWeekends: boolean): boolean {
+  return showWeekends || (day.getDay() !== 0 && day.getDay() !== 6);
+}
+
+function isTaskOnDate(task: Task, dateKey: string): boolean {
+  if (!task.dueDate) return false;
+  return task.dueDate <= dateKey && (task.endDate ?? task.dueDate) >= dateKey;
+}
+
+function isTaskOverdue(task: Task): boolean {
+  if (!task.dueDate || task.completedAt) return false;
+  const key = `${task.dueDate}T${task.dueTime ?? '23:59'}:00`;
+  return new Date(key).getTime() < Date.now();
+}
+
+function currentTimeTop(workdayStart: number, hourHeight: number): number {
+  const now = new Date();
+  return ((now.getHours() * 60 + now.getMinutes() - workdayStart * 60) / 60) * hourHeight;
 }
 
 function layoutTimedTasks(tasks: Task[]): { column: number; columns: number; task: Task }[] {
