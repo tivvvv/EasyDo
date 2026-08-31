@@ -1,9 +1,17 @@
 import type { Task, TaskDraft } from '@easydo/domain';
 import {
+  createRecurrenceRule,
+  createReminder,
+  createSubtask,
+  getLocalTimeZone,
+} from '@easydo/domain';
+import {
   getPendingReminders,
+  getPendingReminderEvents,
   matchesFilter,
   nextRecurrenceDate,
   parseBackup,
+  parseQuickTask,
   taskHasConflict,
   TaskApplicationService,
   type ActivityRepository,
@@ -12,17 +20,23 @@ import {
 import type { ActivityRecord } from '@easydo/domain';
 
 const draft: TaskDraft = {
+  allDay: false,
   categoryId: 'category-work',
   dueDate: '2026-08-31',
   dueTime: '09:00',
   duration: 30,
   endDate: null,
+  endTime: '09:30',
+  kind: 'task',
   notes: '',
+  parentId: null,
   priority: 'medium',
   recurrence: null,
   reminderMinutes: 10,
+  reminders: [createReminder(10)],
   subtasks: [],
   tagIds: [],
+  timeZone: getLocalTimeZone(),
   title: '测试任务',
 };
 
@@ -39,6 +53,10 @@ class MemoryRepository implements TaskRepository {
 
   async get(id: string): Promise<Task | undefined> {
     return this.tasks.get(id);
+  }
+
+  async getBySeries(seriesId: string): Promise<Task[]> {
+    return [...this.tasks.values()].filter((task) => task.seriesId === seriesId);
   }
 
   async update(id: string, patch: Partial<Task>): Promise<void> {
@@ -118,7 +136,7 @@ describe('任务应用服务', () => {
     const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
-      recurrence: { endsOn: null, frequency: 'daily', interval: 1, weekDays: [] },
+      recurrence: createRecurrenceRule('daily'),
     });
     await service.updateRecurring(created.id, { ...draft, title: '仅本次修改' }, 'current');
     expect(repository.tasks.size).toBe(2);
@@ -176,8 +194,10 @@ describe('任务应用服务', () => {
     const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
-      recurrence: { endsOn: null, frequency: 'daily', interval: 2, weekDays: [] },
-      subtasks: [{ completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-1', title: '步骤' }],
+      recurrence: { ...createRecurrenceRule('daily'), interval: 2 },
+      subtasks: [
+        { ...createSubtask('步骤'), completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-1' },
+      ],
     });
 
     expect(await service.complete(created.id)).toMatchObject({ advanced: true });
@@ -201,7 +221,9 @@ describe('任务应用服务', () => {
     const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
-      subtasks: [{ completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-old', title: '步骤' }],
+      subtasks: [
+        { ...createSubtask('步骤'), completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-old' },
+      ],
     });
     const duplicate = await service.duplicate(created.id);
 
@@ -210,58 +232,104 @@ describe('任务应用服务', () => {
     expect(duplicate.subtasks[0]?.id).not.toBe('subtask-old');
     expect(activities.records.map((activity) => activity.action)).toEqual(['create', 'duplicate']);
   });
+
+  it('跳过重复任务并批量推迟排期', async () => {
+    const repository = new MemoryRepository();
+    const service = new TaskApplicationService(repository);
+    const recurring = await service.create({
+      ...draft,
+      recurrence: createRecurrenceRule('daily'),
+    });
+    const ordinary = await service.create({ ...draft, dueTime: '23:30', title: '跨日任务' });
+
+    expect(await service.skipRecurrence(recurring.id)).toBe(true);
+    expect(repository.tasks.get(recurring.id)).toMatchObject({ dueDate: '2026-09-01' });
+    expect(repository.tasks.get(recurring.id)?.recurrence?.excludedDates).toContain('2026-08-31');
+
+    await service.postpone([ordinary.id], 120);
+    expect(repository.tasks.get(ordinary.id)).toMatchObject({
+      dueDate: '2026-09-01',
+      dueTime: '01:30',
+    });
+  });
+
+  it('按全部范围同步重复系列的公共字段', async () => {
+    const repository = new MemoryRepository();
+    const service = new TaskApplicationService(repository);
+    const recurring = await service.create({
+      ...draft,
+      recurrence: createRecurrenceRule('daily'),
+    });
+    await service.complete(recurring.id);
+    await service.updateRecurring(
+      recurring.id,
+      { ...draft, recurrence: createRecurrenceRule('daily'), title: '系列新标题' },
+      'all',
+    );
+    const instances = await repository.getBySeries(recurring.seriesId!);
+    expect(instances).toHaveLength(2);
+    expect(instances.every((task) => task.title === '系列新标题')).toBe(true);
+  });
 });
 
 describe('重复日期和提醒规则', () => {
   it('计算工作日, 每周, 每月和结束日期', () => {
     expect(
       nextRecurrenceDate('2026-09-04', {
-        endsOn: null,
-        frequency: 'weekdays',
-        interval: 1,
-        weekDays: [],
+        ...createRecurrenceRule('weekdays'),
       }),
     ).toBe('2026-09-07');
     expect(
       nextRecurrenceDate('2026-08-31', {
-        endsOn: null,
-        frequency: 'weekly',
-        interval: 1,
+        ...createRecurrenceRule('weekly'),
         weekDays: [1, 3],
       }),
     ).toBe('2026-09-02');
     expect(
       nextRecurrenceDate('2026-01-31', {
-        endsOn: null,
-        frequency: 'monthly',
-        interval: 1,
-        weekDays: [],
+        ...createRecurrenceRule('monthly'),
       }),
     ).toBe('2026-02-28');
     expect(
       nextRecurrenceDate('2026-08-31', {
+        ...createRecurrenceRule('daily'),
         endsOn: '2026-08-31',
-        frequency: 'daily',
-        interval: 1,
-        weekDays: [],
       }),
     ).toBeNull();
     expect(
       nextRecurrenceDate('2026-08-31', {
-        endsOn: null,
-        frequency: 'yearly',
+        ...createRecurrenceRule('yearly'),
         interval: 2,
-        weekDays: [],
       }),
     ).toBe('2028-08-31');
     expect(
       nextRecurrenceDate('2026-08-31', {
-        endsOn: null,
-        frequency: 'weekly',
+        ...createRecurrenceRule('weekly'),
         interval: 2,
-        weekDays: [],
       }),
     ).toBe('2026-09-14');
+  });
+
+  it('支持按次数结束, 月末重复和排除日期', () => {
+    expect(
+      nextRecurrenceDate('2026-01-31', {
+        ...createRecurrenceRule('monthly'),
+        monthMode: 'lastDay',
+      }),
+    ).toBe('2026-02-28');
+    expect(
+      nextRecurrenceDate('2026-08-31', {
+        ...createRecurrenceRule('daily'),
+        excludedDates: ['2026-09-01'],
+      }),
+    ).toBe('2026-09-02');
+    expect(
+      nextRecurrenceDate('2026-08-31', {
+        ...createRecurrenceRule('daily'),
+        completedCount: 2,
+        endAfterOccurrences: 3,
+      }),
+    ).toBeNull();
   });
 
   it('只返回提醒窗口内且尚未通知的任务', () => {
@@ -272,6 +340,7 @@ describe('重复日期和提醒规则', () => {
       deletedAt: null,
       id: 'task-reminder',
       order: 0,
+      seriesId: null,
       updatedAt: '2026-08-31T00:00:00.000Z',
     };
     expect(getPendingReminders([task], new Date('2026-08-31T08:55:00'), new Set())).toEqual([task]);
@@ -285,13 +354,59 @@ describe('重复日期和提醒规则', () => {
           { ...task, deletedAt: '2026-08-31T00:00:00.000Z' },
           { ...task, dueDate: null },
           { ...task, dueTime: null },
-          { ...task, reminderMinutes: null },
+          { ...task, reminderMinutes: null, reminders: [] },
         ],
         new Date('2026-08-31T08:55:00'),
         new Set(),
       ),
     ).toEqual([]);
     expect(getPendingReminders([task], new Date('2026-08-31T07:00:00'), new Set())).toEqual([]);
+  });
+
+  it('分别触发多个提醒并支持结束时间基准', () => {
+    const task: Task = {
+      ...draft,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      endTime: '10:00',
+      id: 'task-multi-reminder',
+      order: 0,
+      reminders: [createReminder(10), createReminder(5, 'end')],
+      seriesId: null,
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    expect(
+      getPendingReminderEvents([task], new Date('2026-08-31T08:50:00'), new Set()),
+    ).toHaveLength(1);
+    expect(
+      getPendingReminderEvents([task], new Date('2026-08-31T09:55:00'), new Set()),
+    ).toHaveLength(1);
+  });
+
+  it('解析中文快速输入中的日期, 时间, 标签, 优先级和提醒', () => {
+    const result = parseQuickTask(
+      '明天下午3点 写周报 #工作 !高 持续2小时 提前30分钟',
+      new Date('2026-08-31T09:00:00'),
+    );
+    expect(result.tagNames).toEqual(['工作']);
+    expect(result.draft).toMatchObject({
+      dueDate: '2026-09-01',
+      dueTime: '15:00',
+      duration: 120,
+      priority: 'high',
+      reminderMinutes: 30,
+      title: '写周报',
+    });
+    expect(
+      parseQuickTask('today 12:30 午餐 !low', new Date('2026-08-31T09:00:00')).draft,
+    ).toMatchObject({ dueDate: '2026-08-31', dueTime: '12:30', priority: 'low', title: '午餐' });
+    expect(parseQuickTask('2026-09-03 上午9点 会议 提醒1小时').draft).toMatchObject({
+      dueDate: '2026-09-03',
+      dueTime: '09:00',
+      reminderMinutes: 60,
+      title: '会议',
+    });
   });
 
   it('验证备份文件格式', () => {
@@ -305,7 +420,7 @@ describe('重复日期和提醒规则', () => {
           version: 1,
         }),
       ),
-    ).toMatchObject({ version: 2 });
+    ).toMatchObject({ version: 3 });
     expect(() => parseBackup('{"version":2}')).toThrow('备份文件格式不正确.');
     expect(() =>
       parseBackup(
@@ -318,6 +433,50 @@ describe('重复日期和提醒规则', () => {
         }),
       ),
     ).toThrow('备份文件格式不正确.');
+    const migrated = parseBackup(
+      JSON.stringify({
+        categories: [
+          {
+            color: '#fff',
+            createdAt: '2026-08-31T00:00:00.000Z',
+            id: 'category-old',
+            name: '旧分类',
+            order: 0,
+          },
+        ],
+        exportedAt: '2026-08-31',
+        settings: { calendarDensity: 'compact' },
+        tags: [],
+        tasks: [
+          {
+            categoryId: 'category-old',
+            completedAt: null,
+            createdAt: '2026-08-31T00:00:00.000Z',
+            deletedAt: null,
+            dueDate: '2026-08-31',
+            dueTime: '09:00',
+            duration: 30,
+            id: 'task-old',
+            notes: '',
+            order: 0,
+            priority: 'none',
+            recurrence: { endsOn: null, frequency: 'daily', interval: 1, weekDays: [] },
+            reminderMinutes: 10,
+            subtasks: [{ completedAt: null, id: 'subtask-old', title: '旧步骤' }],
+            tagIds: [],
+            title: '旧任务',
+            updatedAt: '2026-08-31T00:00:00.000Z',
+          },
+        ],
+        version: 2,
+      }),
+    );
+    expect(migrated.tasks[0]).toMatchObject({
+      allDay: false,
+      endTime: '09:30',
+      kind: 'task',
+      reminders: [expect.objectContaining({ offsetMinutes: 10 })],
+    });
   });
 });
 
@@ -329,6 +488,7 @@ describe('智能筛选和日程冲突', () => {
     deletedAt: null,
     id: crypto.randomUUID(),
     order: 0,
+    seriesId: null,
     updatedAt: '2026-08-31T00:00:00.000Z',
   });
 
@@ -340,6 +500,7 @@ describe('智能筛选和日程冲突', () => {
         {
           categoryId: 'category-work',
           dateRange: 'next7',
+          kind: 'all',
           priority: 'medium',
           status: 'active',
           tagIds: [],
@@ -353,6 +514,7 @@ describe('智能筛选和日程冲突', () => {
         {
           categoryId: null,
           dateRange: 'overdue',
+          kind: 'all',
           priority: 'all',
           status: 'active',
           tagIds: [],

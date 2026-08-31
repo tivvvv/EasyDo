@@ -2,12 +2,13 @@ import { ArrowDown, ArrowUp, Trash2, X } from 'lucide-react';
 import { useId, useState } from 'react';
 
 type CollectionDialogProps = {
-  initial?: { color: string; id: string; name: string } | null;
+  folders?: { id: string; name: string }[];
+  initial?: { color: string; folderId?: string | null; id: string; name: string } | null;
   kind: 'category' | 'tag';
   onClose: () => void;
   onDelete?: (id: string) => Promise<void>;
   onMove?: (direction: -1 | 1) => Promise<void>;
-  onSave: (name: string, color: string) => Promise<void>;
+  onSave: (name: string, color: string, folderId: string | null) => Promise<void>;
   open: boolean;
 };
 
@@ -15,6 +16,7 @@ const colors = ['#655fd7', '#3fa27c', '#df8b4d', '#d65f78', '#388fc7', '#8e64bf'
 
 export function CollectionDialog({
   initial = null,
+  folders = [],
   kind,
   onClose,
   onDelete,
@@ -25,6 +27,7 @@ export function CollectionDialog({
   const titleId = useId();
   const [name, setName] = useState(initial?.name ?? '');
   const [color, setColor] = useState(initial?.color ?? colors[0] ?? '#655fd7');
+  const [folderId, setFolderId] = useState(initial?.folderId ?? '');
   const label = kind === 'category' ? '分类' : '标签';
 
   if (!open) {
@@ -35,7 +38,7 @@ export function CollectionDialog({
     if (!name.trim()) {
       return;
     }
-    await onSave(name.trim(), color);
+    await onSave(name.trim(), color, folderId || null);
     onClose();
   };
 
@@ -83,6 +86,19 @@ export function CollectionDialog({
               />
             ))}
           </div>
+          {kind === 'category' && folders.length > 0 && (
+            <label className="field full-field">
+              <span>所属文件夹</span>
+              <select onChange={(event) => setFolderId(event.target.value)} value={folderId}>
+                <option value="">不放入文件夹</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {initial && kind === 'category' && onMove && (
             <div className="collection-order">
               <span>调整侧栏顺序</span>

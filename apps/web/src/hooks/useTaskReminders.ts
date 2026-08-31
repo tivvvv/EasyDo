@@ -1,9 +1,9 @@
 import type { Task } from '@easydo/domain';
-import { getPendingReminders } from '@easydo/application';
+import { getPendingReminderEvents } from '@easydo/application';
 import { useEffect, useRef } from 'react';
 
 export function useTaskReminders(tasks: Task[]): void {
-  const notifiedIds = useRef(new Set<string>());
+  const notifiedKeys = useRef(new Set<string>());
 
   useEffect(() => {
     if (!('Notification' in window) || Notification.permission !== 'granted') {
@@ -11,13 +11,13 @@ export function useTaskReminders(tasks: Task[]): void {
     }
 
     const check = () => {
-      const pending = getPendingReminders(tasks, new Date(), notifiedIds.current);
-      for (const task of pending) {
-        notifiedIds.current.add(task.id);
-        new Notification(task.title, {
-          body: task.dueTime ? `计划时间 ${task.dueTime}.` : '任务即将开始.',
+      const pending = getPendingReminderEvents(tasks, new Date(), notifiedKeys.current);
+      for (const event of pending) {
+        notifiedKeys.current.add(event.key);
+        new Notification(event.task.title, {
+          body: event.task.dueTime ? `计划时间 ${event.task.dueTime}.` : '任务即将开始.',
           icon: '/og.png',
-          tag: `easydo-${task.id}`,
+          tag: `easydo-${event.key}`,
         });
       }
     };

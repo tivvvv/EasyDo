@@ -1,4 +1,4 @@
-import type { Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
+import type { AppSettings, Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
@@ -26,6 +26,8 @@ type TaskListProps = {
   onTrash: (taskId: string) => Promise<void>;
   onReorder: (sourceId: string, targetId: string) => Promise<void>;
   onToggle: (taskId: string) => Promise<void>;
+  onUpdateSettings: (patch: Partial<Omit<AppSettings, 'id'>>) => Promise<void>;
+  settings: AppSettings;
   tags: Tag[];
   tasks: Task[];
   title: string;
@@ -41,14 +43,18 @@ export function TaskList({
   onTrash,
   onReorder,
   onToggle,
+  onUpdateSettings,
+  settings,
   tags,
   tasks,
   title,
 }: TaskListProps) {
   const categoryMap = new Map(categories.map((category) => [category.id, category]));
   const tagMap = new Map(tags.map((tag) => [tag.id, tag]));
-  const active = tasks.filter((task) => !task.completedAt);
-  const completed = tasks.filter((task) => task.completedAt);
+  const orderedTasks = sortForView(tasks, settings.taskSort);
+  const active = orderedTasks.filter((task) => !task.completedAt);
+  const completed = orderedTasks.filter((task) => task.completedAt);
+  const activeGroups = groupForView(active, settings.taskGrouping, categoryMap);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchCategory, setBatchCategory] = useState('');
   const [batchDate, setBatchDate] = useState('');
@@ -73,10 +79,39 @@ export function TaskList({
           <p>任务</p>
           <h2>{title}</h2>
         </div>
-        <button className="primary-button" onClick={onAdd} type="button">
-          <CirclePlus size={17} />
-          添加任务
-        </button>
+        <div className="list-heading-actions">
+          <select
+            aria-label="任务分组"
+            onChange={(event) =>
+              void onUpdateSettings({
+                taskGrouping: event.target.value as AppSettings['taskGrouping'],
+              })
+            }
+            value={settings.taskGrouping}
+          >
+            <option value="none">不分组</option>
+            <option value="date">按日期分组</option>
+            <option value="priority">按优先级分组</option>
+            <option value="category">按分类分组</option>
+          </select>
+          <select
+            aria-label="任务排序"
+            onChange={(event) =>
+              void onUpdateSettings({ taskSort: event.target.value as AppSettings['taskSort'] })
+            }
+            value={settings.taskSort}
+          >
+            <option value="manual">手动排序</option>
+            <option value="date">按日期</option>
+            <option value="priority">按优先级</option>
+            <option value="created">按创建时间</option>
+            <option value="updated">按更新时间</option>
+          </select>
+          <button className="primary-button" onClick={onAdd} type="button">
+            <CirclePlus size={17} />
+            添加任务
+          </button>
+        </div>
       </div>
       <div className="list-summary">
         <span>
@@ -154,18 +189,23 @@ export function TaskList({
       )}
       {tasks.length ? (
         <div className="task-list">
-          {active.map((task) => (
-            <TaskRow
-              category={categoryMap.get(task.categoryId)}
-              key={task.id}
-              onEdit={onEdit}
-              onReorder={onReorder}
-              onSelect={toggleSelected}
-              onToggle={onToggle}
-              selected={selectedIds.includes(task.id)}
-              tagMap={tagMap}
-              task={task}
-            />
+          {activeGroups.map(([group, groupTasks]) => (
+            <div className="task-group" key={group}>
+              {settings.taskGrouping !== 'none' && <h3 className="task-group-heading">{group}</h3>}
+              {groupTasks.map((task) => (
+                <TaskRow
+                  category={categoryMap.get(task.categoryId)}
+                  key={task.id}
+                  onEdit={onEdit}
+                  onReorder={onReorder}
+                  onSelect={toggleSelected}
+                  onToggle={onToggle}
+                  selected={selectedIds.includes(task.id)}
+                  tagMap={tagMap}
+                  task={task}
+                />
+              ))}
+            </div>
           ))}
           {completed.length > 0 && (
             <details className="completed-group">
@@ -295,4 +335,43 @@ function TaskRow({
       <span className={`row-priority ${task.priority}`} />
     </article>
   );
+}
+
+const priorityOrder: Record<Priority, number> = { high: 0, medium: 1, low: 2, none: 3 };
+
+function sortForView(tasks: Task[], sort: AppSettings['taskSort']): Task[] {
+  return [...tasks].sort((left, right) => {
+    if (sort === 'date') {
+      return `${left.dueDate ?? '9999-12-31'}${left.dueTime ?? '23:59'}`.localeCompare(
+        `${right.dueDate ?? '9999-12-31'}${right.dueTime ?? '23:59'}`,
+      );
+    }
+    if (sort === 'priority') return priorityOrder[left.priority] - priorityOrder[right.priority];
+    if (sort === 'created') return right.createdAt.localeCompare(left.createdAt);
+    if (sort === 'updated') return right.updatedAt.localeCompare(left.updatedAt);
+    return left.order - right.order;
+  });
+}
+
+function groupForView(
+  tasks: Task[],
+  grouping: AppSettings['taskGrouping'],
+  categoryMap: Map<string, Category>,
+): Array<[string, Task[]]> {
+  if (grouping === 'none') return [['全部', tasks]];
+  const groups = new Map<string, Task[]>();
+  for (const task of tasks) {
+    const key =
+      grouping === 'category'
+        ? (categoryMap.get(task.categoryId)?.name ?? '未分类')
+        : grouping === 'priority'
+          ? priorityLabel(task.priority)
+          : (task.dueDate ?? '未安排日期');
+    groups.set(key, [...(groups.get(key) ?? []), task]);
+  }
+  return [...groups.entries()];
+}
+
+function priorityLabel(priority: Priority): string {
+  return { high: '高优先级', low: '低优先级', medium: '中优先级', none: '无优先级' }[priority];
 }

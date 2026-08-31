@@ -9,6 +9,7 @@ const categories: Category[] = [
   {
     color: '#655fd7',
     createdAt: '2026-08-30T00:00:00.000Z',
+    folderId: null,
     id: 'category-work',
     name: '工作',
     order: 0,

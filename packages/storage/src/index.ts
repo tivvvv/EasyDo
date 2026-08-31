@@ -3,6 +3,7 @@ import type {
   AppSettings,
   BackupPayload,
   Category,
+  Folder,
   SavedFilter,
   Tag,
   Task,
@@ -10,13 +11,23 @@ import type {
   TaskPatch,
   TaskTemplate,
 } from '@easydo/domain';
-import { createId, defaultAppSettings } from '@easydo/domain';
+import {
+  createId,
+  createRecurrenceRule,
+  createReminder,
+  createSubtask,
+  defaultAppSettings,
+  getLocalTimeZone,
+} from '@easydo/domain';
 import Dexie, { type EntityTable } from 'dexie';
+
+export { default as Dexie } from 'dexie';
 
 export class EasyDoDatabase extends Dexie {
   activities!: EntityTable<ActivityRecord, 'id'>;
   categories!: EntityTable<Category, 'id'>;
   filters!: EntityTable<SavedFilter, 'id'>;
+  folders!: EntityTable<Folder, 'id'>;
   settings!: EntityTable<AppSettings, 'id'>;
   tags!: EntityTable<Tag, 'id'>;
   tasks!: EntityTable<Task, 'id'>;
@@ -69,7 +80,122 @@ export class EasyDoDatabase extends Dexie {
             order += 1;
           });
       });
+    this.version(4)
+      .stores({
+        activities: 'id, action, createdAt, groupId, taskId',
+        categories: 'id, folderId, order, name',
+        filters: 'id, createdAt, name',
+        folders: 'id, order, name',
+        settings: 'id',
+        tags: 'id, name',
+        tasks:
+          'id, dueDate, dueTime, endDate, categoryId, completedAt, deletedAt, kind, order, parentId, priority, seriesId, createdAt, *tagIds',
+        templates: 'id, createdAt, name',
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table<Task>('tasks')
+          .toCollection()
+          .modify((task) => {
+            upgradeTask(task);
+          });
+        await transaction
+          .table<Category>('categories')
+          .toCollection()
+          .modify((category) => {
+            category.folderId ??= null;
+          });
+        await transaction
+          .table<SavedFilter>('filters')
+          .toCollection()
+          .modify((filter) => {
+            filter.criteria.kind ??= 'all';
+          });
+        await transaction
+          .table<AppSettings>('settings')
+          .toCollection()
+          .modify((settings) => {
+            Object.assign(settings, normalizeSettings(settings));
+          });
+        await transaction
+          .table<TaskTemplate>('templates')
+          .toCollection()
+          .modify((template) => {
+            template.draft = upgradeDraft(template.draft);
+          });
+        await transaction
+          .table<ActivityRecord>('activities')
+          .toCollection()
+          .modify((activity) => {
+            if (activity.before) upgradeTask(activity.before);
+            if (activity.after) upgradeTask(activity.after);
+          });
+      });
   }
+}
+
+function upgradeTask(task: Task): Task {
+  task.allDay ??= !task.dueTime;
+  task.endTime ??= task.dueTime ? addMinutesToTime(task.dueTime, task.duration) : null;
+  task.kind ??= 'task';
+  task.parentId ??= null;
+  task.reminders ??=
+    task.reminderMinutes === null || task.reminderMinutes === undefined
+      ? []
+      : [createReminder(task.reminderMinutes)];
+  task.seriesId ??= task.recurrence ? createId('series') : null;
+  task.timeZone ??= getLocalTimeZone();
+  task.subtasks = task.subtasks.map((subtask) => ({
+    ...createSubtask(subtask.title),
+    ...subtask,
+    tagIds: subtask.tagIds ?? [],
+  }));
+  if (task.recurrence) {
+    task.recurrence = {
+      ...createRecurrenceRule(task.recurrence.frequency),
+      ...task.recurrence,
+      excludedDates: task.recurrence.excludedDates ?? [],
+    };
+  }
+  return task;
+}
+
+function upgradeDraft(draft: TaskDraft): TaskDraft {
+  const reminderMinutes = draft.reminderMinutes ?? null;
+  return {
+    ...draft,
+    allDay: draft.allDay ?? !draft.dueTime,
+    endTime:
+      draft.endTime ?? (draft.dueTime ? addMinutesToTime(draft.dueTime, draft.duration) : null),
+    kind: draft.kind ?? 'task',
+    parentId: draft.parentId ?? null,
+    recurrence: draft.recurrence
+      ? {
+          ...createRecurrenceRule(draft.recurrence.frequency),
+          ...draft.recurrence,
+          excludedDates: draft.recurrence.excludedDates ?? [],
+        }
+      : null,
+    reminderMinutes,
+    reminders:
+      draft.reminders ?? (reminderMinutes === null ? [] : [createReminder(reminderMinutes)]),
+    subtasks: draft.subtasks.map((subtask) => ({
+      ...createSubtask(subtask.title),
+      ...subtask,
+      tagIds: subtask.tagIds ?? [],
+    })),
+    timeZone: draft.timeZone ?? getLocalTimeZone(),
+  };
+}
+
+function normalizeSettings(settings: AppSettings): AppSettings {
+  return { ...defaultAppSettings, ...settings };
+}
+
+function addMinutesToTime(time: string, duration: number): string {
+  const [hours = 0, minutes = 0] = time.split(':').map(Number);
+  const total = (hours * 60 + minutes + duration) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 export const db = new EasyDoDatabase();
@@ -113,9 +239,30 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
     async () => {
       await database.settings.put({ ...defaultAppSettings });
       await database.categories.bulkAdd([
-        { color: '#655fd7', createdAt, id: 'category-work', name: '工作', order: 0 },
-        { color: '#3fa27c', createdAt, id: 'category-personal', name: '个人', order: 1 },
-        { color: '#df8b4d', createdAt, id: 'category-study', name: '学习', order: 2 },
+        {
+          color: '#655fd7',
+          createdAt,
+          folderId: null,
+          id: 'category-work',
+          name: '工作',
+          order: 0,
+        },
+        {
+          color: '#3fa27c',
+          createdAt,
+          folderId: null,
+          id: 'category-personal',
+          name: '个人',
+          order: 1,
+        },
+        {
+          color: '#df8b4d',
+          createdAt,
+          folderId: null,
+          id: 'category-study',
+          name: '学习',
+          order: 2,
+        },
       ]);
       await database.tags.bulkAdd([
         { color: '#655fd7', createdAt, id: 'tag-focus', name: '专注' },
@@ -123,6 +270,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
       ]);
       await database.tasks.bulkAdd([
         {
+          allDay: false,
           categoryId: 'category-work',
           completedAt: null,
           createdAt,
@@ -131,21 +279,25 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           dueTime: '09:30',
           duration: 45,
           endDate: null,
+          endTime: '10:15',
           id: createId('task'),
+          kind: 'task',
           notes: '双击日历空白处可以快速创建任务.',
           order: 0,
+          parentId: null,
           priority: 'high',
           recurrence: null,
           reminderMinutes: 10,
-          subtasks: [
-            { completedAt: null, id: createId('subtask'), title: '确认今天的截止事项' },
-            { completedAt: null, id: createId('subtask'), title: '选出最重要的三项任务' },
-          ],
+          reminders: [createReminder(10)],
+          seriesId: null,
+          subtasks: [createSubtask('确认今天的截止事项'), createSubtask('选出最重要的三项任务')],
           tagIds: ['tag-focus'],
+          timeZone: getLocalTimeZone(),
           title: '规划今天最重要的三件事',
           updatedAt: createdAt,
         },
         {
+          allDay: false,
           categoryId: 'category-personal',
           completedAt: null,
           createdAt,
@@ -154,23 +306,25 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           dueTime: '18:30',
           duration: 30,
           endDate: null,
+          endTime: '19:00',
           id: createId('task'),
+          kind: 'task',
           notes: '完成任务后点击左侧圆框.',
           order: 1,
+          parentId: null,
           priority: 'medium',
-          recurrence: {
-            endsOn: null,
-            frequency: 'weekdays',
-            interval: 1,
-            weekDays: [],
-          },
+          recurrence: createRecurrenceRule('weekdays'),
           reminderMinutes: null,
+          reminders: [],
+          seriesId: createId('series'),
           subtasks: [],
           tagIds: ['tag-routine'],
+          timeZone: getLocalTimeZone(),
           title: '傍晚散步 30 分钟',
           updatedAt: createdAt,
         },
         {
+          allDay: true,
           categoryId: 'category-study',
           completedAt: null,
           createdAt,
@@ -179,14 +333,20 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           dueTime: null,
           duration: 60,
           endDate: null,
+          endTime: null,
           id: createId('task'),
+          kind: 'task',
           notes: '你可以把日历中的任务拖到其他日期.',
           order: 2,
+          parentId: null,
           priority: 'low',
           recurrence: null,
           reminderMinutes: null,
+          reminders: [],
+          seriesId: null,
           subtasks: [],
           tagIds: [],
+          timeZone: getLocalTimeZone(),
           title: '整理本周学习计划',
           updatedAt: createdAt,
         },
@@ -204,14 +364,16 @@ function toLocalDateKey(date: Date): string {
 
 export async function addTask(draft: TaskDraft, database: EasyDoDatabase = db): Promise<Task> {
   const now = new Date().toISOString();
+  const normalized = upgradeDraft(draft);
   const task: Task = {
-    ...draft,
+    ...normalized,
     completedAt: null,
     createdAt: now,
     deletedAt: null,
     id: createId('task'),
     order: await database.tasks.count(),
-    title: draft.title.trim(),
+    seriesId: normalized.recurrence ? createId('series') : null,
+    title: normalized.title.trim(),
     updatedAt: now,
   };
 
@@ -252,6 +414,7 @@ export async function addCategory(
   const category: Category = {
     color,
     createdAt: new Date().toISOString(),
+    folderId: null,
     id: createId('category'),
     name: name.trim(),
     order: await database.categories.count(),
@@ -292,6 +455,10 @@ export class DexieTaskRepository {
     return this.database.tasks.get(id);
   }
 
+  async getBySeries(seriesId: string): Promise<Task[]> {
+    return this.database.tasks.where('seriesId').equals(seriesId).toArray();
+  }
+
   async update(id: string, patch: Partial<Task>): Promise<void> {
     await this.database.tasks.update(id, patch);
   }
@@ -319,10 +486,40 @@ export class DexieActivityRepository {
 
 export async function updateCategory(
   id: string,
-  patch: Pick<Category, 'color' | 'name'>,
+  patch: Pick<Category, 'color' | 'name'> & Partial<Pick<Category, 'folderId'>>,
   database: EasyDoDatabase = db,
 ): Promise<void> {
-  await database.categories.update(id, { color: patch.color, name: patch.name.trim() });
+  await database.categories.update(id, {
+    color: patch.color,
+    ...(patch.folderId === undefined ? {} : { folderId: patch.folderId }),
+    name: patch.name.trim(),
+  });
+}
+
+export async function addFolder(name: string, database: EasyDoDatabase = db): Promise<Folder> {
+  const folder: Folder = {
+    createdAt: new Date().toISOString(),
+    id: createId('folder'),
+    name: name.trim(),
+    order: await database.folders.count(),
+  };
+  await database.folders.add(folder);
+  return folder;
+}
+
+export async function updateFolder(
+  id: string,
+  name: string,
+  database: EasyDoDatabase = db,
+): Promise<void> {
+  await database.folders.update(id, { name: name.trim() });
+}
+
+export async function deleteFolder(id: string, database: EasyDoDatabase = db): Promise<void> {
+  await database.transaction('rw', database.categories, database.folders, async () => {
+    await database.categories.where('folderId').equals(id).modify({ folderId: null });
+    await database.folders.delete(id);
+  });
 }
 
 export async function deleteCategory(
@@ -370,25 +567,28 @@ export async function reorderCategories(
 }
 
 export async function exportBackup(database: EasyDoDatabase = db): Promise<BackupPayload> {
-  const [activities, categories, filters, settings, tags, tasks, templates] = await Promise.all([
-    database.activities.toArray(),
-    database.categories.toArray(),
-    database.filters.toArray(),
-    database.settings.get('default'),
-    database.tags.toArray(),
-    database.tasks.toArray(),
-    database.templates.toArray(),
-  ]);
+  const [activities, categories, filters, folders, settings, tags, tasks, templates] =
+    await Promise.all([
+      database.activities.toArray(),
+      database.categories.toArray(),
+      database.filters.toArray(),
+      database.folders.toArray(),
+      database.settings.get('default'),
+      database.tags.toArray(),
+      database.tasks.toArray(),
+      database.templates.toArray(),
+    ]);
   return {
     activities,
     categories,
     exportedAt: new Date().toISOString(),
     filters,
+    folders,
     settings: settings ?? { ...defaultAppSettings },
     tags,
     tasks,
     templates,
-    version: 2,
+    version: 3,
   };
 }
 
@@ -402,6 +602,7 @@ export async function replaceFromBackup(
       database.activities,
       database.categories,
       database.filters,
+      database.folders,
       database.settings,
       database.tags,
       database.tasks,
@@ -412,6 +613,7 @@ export async function replaceFromBackup(
         database.activities.clear(),
         database.categories.clear(),
         database.filters.clear(),
+        database.folders.clear(),
         database.settings.clear(),
         database.tags.clear(),
         database.tasks.clear(),
@@ -420,6 +622,7 @@ export async function replaceFromBackup(
       await database.activities.bulkAdd(payload.activities);
       await database.categories.bulkAdd(payload.categories);
       await database.filters.bulkAdd(payload.filters);
+      await database.folders.bulkAdd(payload.folders);
       await database.settings.put(payload.settings);
       await database.tags.bulkAdd(payload.tags);
       await database.tasks.bulkAdd(payload.tasks);
@@ -446,7 +649,7 @@ export async function addTemplate(
 ): Promise<TaskTemplate> {
   const template: TaskTemplate = {
     createdAt: new Date().toISOString(),
-    draft,
+    draft: upgradeDraft(draft),
     id: createId('template'),
     name: name.trim(),
   };

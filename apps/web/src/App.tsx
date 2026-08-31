@@ -3,6 +3,7 @@ import type {
   AppSettings,
   Category,
   FilterCriteria,
+  Folder,
   Priority,
   RecurrenceEditScope,
   Tag,
@@ -26,6 +27,8 @@ import {
   CirclePlus,
   Download,
   Edit3,
+  Folder as FolderIcon,
+  FolderPlus,
   History,
   Inbox,
   ListTodo,
@@ -42,11 +45,13 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   addCategory,
+  addFolder,
   addSavedFilter,
   addTag,
   addTemplate,
   db,
   deleteCategory,
+  deleteFolder,
   deleteSavedFilter,
   deleteTag,
   deleteTemplate,
@@ -56,6 +61,7 @@ import {
   reorderCategories,
   reorderTasks,
   updateCategory,
+  updateFolder,
   updateSettings,
   updateTag,
 } from '@easydo/storage';
@@ -66,6 +72,7 @@ import { CalendarView, type CalendarMode } from './components/CalendarView';
 import { CollectionDialog } from './components/CollectionDialog';
 import { FilterPanel } from './components/FilterPanel';
 import { QuickEditPanel } from './components/QuickEditPanel';
+import { QuickCapture } from './components/QuickCapture';
 import { TaskDialog } from './components/TaskDialog';
 import { TaskList } from './components/TaskList';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
@@ -75,14 +82,14 @@ import './styles.css';
 
 type View =
   | { kind: 'all' | 'calendar' | 'history' | 'inbox' | 'settings' | 'today' | 'trash' }
-  | { id: string; kind: 'category' | 'tag' };
+  | { id: string; kind: 'category' | 'folder' | 'tag' };
 
 const today = startOfDay(new Date());
 
 export function App() {
   const data = useWorkspaceData();
   const [view, setView] = useState<View>({ kind: 'calendar' });
-  const [calendarMode, setCalendarMode] = useState<CalendarMode>('month');
+  const [calendarMode, setCalendarMode] = useState<CalendarMode | null>(null);
   const [currentDate, setCurrentDate] = useState(today);
   const [selectedDate, setSelectedDate] = useState(today);
   const [search, setSearch] = useState('');
@@ -92,6 +99,7 @@ export function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const [dialogTime, setDialogTime] = useState<string | null>(null);
+  const [dialogDuration, setDialogDuration] = useState(30);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [collectionDialog, setCollectionDialog] = useState<{
     initial: Category | Tag | null;
@@ -102,10 +110,11 @@ export function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
 
-  const openNewTask = (date: string | null, time: string | null = null) => {
+  const openNewTask = (date: string | null, time: string | null = null, duration = 30) => {
     setEditingTask(null);
     setDialogDate(date);
     setDialogTime(time);
+    setDialogDuration(duration);
     setTaskDialogOpen(true);
   };
 
@@ -154,7 +163,8 @@ export function App() {
     );
   }
 
-  const { activities, categories, filters, settings, tags, tasks, templates } = data;
+  const { activities, categories, filters, folders = [], settings, tags, tasks, templates } = data;
+  const activeCalendarMode = calendarMode ?? settings.defaultCalendarMode;
   const activeTasks = tasks.filter((task) => !task.deletedAt);
   const trashedTasks = tasks.filter((task) => task.deletedAt);
   const filteredTasks = sortTasks(
@@ -162,8 +172,8 @@ export function App() {
       (task) => matchesTaskSearch(task, search) && matchesFilter(task, criteria, toDateKey(today)),
     ),
   );
-  const viewTasks = getViewTasks(filteredTasks, view);
-  const title = getViewTitle(view, categories, tags);
+  const viewTasks = getViewTasks(filteredTasks, view, categories);
+  const title = getViewTitle(view, categories, tags, folders);
 
   const saveTask = async (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => {
     if (id) {
@@ -259,20 +269,57 @@ export function App() {
           label="分类"
           onAdd={() => setCollectionDialog({ initial: null, kind: 'category' })}
         >
-          {categories.map((category) => (
-            <CollectionNavRow
-              active={view.kind === 'category' && view.id === category.id}
-              count={
-                activeTasks.filter((task) => task.categoryId === category.id && !task.completedAt)
-                  .length
+          <button
+            className="folder-add-button"
+            onClick={async () => {
+              const name = window.prompt('请输入文件夹名称.');
+              if (name?.trim()) {
+                await addFolder(name.trim());
+                showToast('文件夹已创建.');
               }
-              icon={<span className="list-dot" style={{ background: category.color }} />}
-              key={category.id}
-              label={category.name}
-              onClick={() => chooseView({ id: category.id, kind: 'category' })}
-              onManage={() => setCollectionDialog({ initial: category, kind: 'category' })}
+            }}
+            type="button"
+          >
+            <FolderPlus size={14} /> 新建文件夹
+          </button>
+          {folders.map((folder) => (
+            <FolderNavGroup
+              active={view.kind === 'folder' && view.id === folder.id}
+              categories={categories.filter((category) => category.folderId === folder.id)}
+              folder={folder}
+              key={folder.id}
+              onChooseCategory={(id) => chooseView({ id, kind: 'category' })}
+              onChooseFolder={() => chooseView({ id: folder.id, kind: 'folder' })}
+              onManageCategory={(category) =>
+                setCollectionDialog({ initial: category, kind: 'category' })
+              }
+              onManage={async () => {
+                const name = window.prompt('修改文件夹名称, 留空将删除文件夹.', folder.name);
+                if (name === null) return;
+                if (name.trim()) await updateFolder(folder.id, name.trim());
+                else if (window.confirm(`确定删除文件夹 "${folder.name}" 吗? 分类会保留.`))
+                  await deleteFolder(folder.id);
+              }}
+              tasks={activeTasks}
+              view={view}
             />
           ))}
+          {categories
+            .filter((category) => !category.folderId)
+            .map((category) => (
+              <CollectionNavRow
+                active={view.kind === 'category' && view.id === category.id}
+                count={
+                  activeTasks.filter((task) => task.categoryId === category.id && !task.completedAt)
+                    .length
+                }
+                icon={<span className="list-dot" style={{ background: category.color }} />}
+                key={category.id}
+                label={category.name}
+                onClick={() => chooseView({ id: category.id, kind: 'category' })}
+                onManage={() => setCollectionDialog({ initial: category, kind: 'category' })}
+              />
+            ))}
         </SidebarSection>
 
         <SidebarSection
@@ -358,7 +405,12 @@ export function App() {
             <p className="eyebrow">{view.kind === 'calendar' ? '日历' : '任务'}</p>
             <h1>
               {view.kind === 'calendar'
-                ? calendarTitle(currentDate, calendarMode, settings.agendaDays)
+                ? calendarTitle(
+                    currentDate,
+                    activeCalendarMode,
+                    settings.agendaDays,
+                    settings.weekStartsOn,
+                  )
                 : title}
             </h1>
           </div>
@@ -423,14 +475,28 @@ export function App() {
                   value={toDateKey(selectedDate)}
                 />
                 <div className="view-switcher" aria-label="日历视图">
-                  {(['month', 'week', 'day', 'agenda'] as CalendarMode[]).map((mode) => (
+                  {(
+                    ['month', 'week', 'fiveDay', 'threeDay', 'day', 'agenda'] as CalendarMode[]
+                  ).map((mode) => (
                     <button
-                      className={calendarMode === mode ? 'active' : ''}
+                      className={activeCalendarMode === mode ? 'active' : ''}
                       key={mode}
-                      onClick={() => setCalendarMode(mode)}
+                      onClick={() => {
+                        setCalendarMode(mode);
+                        void updateSettings({ defaultCalendarMode: mode });
+                      }}
                       type="button"
                     >
-                      {{ agenda: '日程', day: '日', month: '月', week: '周' }[mode]}
+                      {
+                        {
+                          agenda: '日程',
+                          day: '日',
+                          fiveDay: '5 日',
+                          month: '月',
+                          threeDay: '3 日',
+                          week: '周',
+                        }[mode]
+                      }
                     </button>
                   ))}
                 </div>
@@ -448,7 +514,9 @@ export function App() {
                   className="icon-button"
                   aria-label="上一段时间"
                   onClick={() =>
-                    setCurrentDate(navigateDate(currentDate, calendarMode, -1, settings.agendaDays))
+                    setCurrentDate(
+                      navigateDate(currentDate, activeCalendarMode, -1, settings.agendaDays),
+                    )
                   }
                   type="button"
                 >
@@ -458,7 +526,9 @@ export function App() {
                   className="icon-button"
                   aria-label="下一段时间"
                   onClick={() =>
-                    setCurrentDate(navigateDate(currentDate, calendarMode, 1, settings.agendaDays))
+                    setCurrentDate(
+                      navigateDate(currentDate, activeCalendarMode, 1, settings.agendaDays),
+                    )
                   }
                   type="button"
                 >
@@ -468,6 +538,21 @@ export function App() {
             )}
           </div>
         </header>
+
+        <QuickCapture
+          categories={categories}
+          onCreate={async (draft, newTagNames) => {
+            const createdTags = await Promise.all(
+              newTagNames.map((name) => addTag(name, '#7c6cf2')),
+            );
+            await taskService.create({
+              ...draft,
+              tagIds: [...draft.tagIds, ...createdTags.map((tag) => tag.id)],
+            });
+            showToast('任务已快速添加.');
+          }}
+          tags={tags}
+        />
 
         {filterOpen && (
           <FilterPanel
@@ -492,7 +577,7 @@ export function App() {
           <CalendarView
             categories={categories}
             currentDate={currentDate}
-            mode={calendarMode}
+            mode={activeCalendarMode}
             onAdd={openNewTask}
             onEdit={(task) => {
               setEditingTask(task);
@@ -622,6 +707,8 @@ export function App() {
             tags={tags}
             tasks={viewTasks}
             title={title}
+            settings={settings}
+            onUpdateSettings={async (patch) => updateSettings(patch)}
           />
         )}
       </main>
@@ -630,6 +717,7 @@ export function App() {
         <TaskDialog
           categories={categories}
           defaultDate={dialogDate}
+          defaultDuration={dialogDuration}
           defaultTime={dialogTime}
           onClose={() => setTaskDialogOpen(false)}
           onDelete={async (id) => {
@@ -660,11 +748,20 @@ export function App() {
             await taskService.update(id, patch);
             showToast('任务已快速更新.', true);
           }}
+          onSkip={async (id) => {
+            await taskService.skipRecurrence(id);
+            showToast('已跳过本次重复任务.', true);
+          }}
+          onPostpone={async (id, minutes) => {
+            await taskService.postpone([id], minutes);
+            showToast('任务已推迟.', true);
+          }}
           task={quickEditingTask}
         />
       )}
       {collectionDialog && (
         <CollectionDialog
+          folders={folders}
           initial={collectionDialog.initial}
           kind={collectionDialog.kind}
           onClose={() => setCollectionDialog(null)}
@@ -684,15 +781,18 @@ export function App() {
             }
             showToast(collectionDialog.kind === 'tag' ? '标签已删除.' : '分类已删除.');
           }}
-          onSave={async (name, color) => {
+          onSave={async (name, color, folderId) => {
             if (collectionDialog.initial) {
               if (collectionDialog.kind === 'tag') {
                 await updateTag(collectionDialog.initial.id, { color, name });
               } else {
-                await updateCategory(collectionDialog.initial.id, { color, name });
+                await updateCategory(collectionDialog.initial.id, { color, folderId, name });
               }
             } else if (collectionDialog.kind === 'tag') await addTag(name, color);
-            else await addCategory(name, color);
+            else {
+              const category = await addCategory(name, color);
+              if (folderId) await updateCategory(category.id, { color, folderId, name });
+            }
             showToast(
               collectionDialog.initial
                 ? collectionDialog.kind === 'tag'
@@ -776,6 +876,57 @@ function CollectionNavRow({
   );
 }
 
+function FolderNavGroup({
+  active,
+  categories,
+  folder,
+  onChooseCategory,
+  onChooseFolder,
+  onManageCategory,
+  onManage,
+  tasks,
+  view,
+}: {
+  active: boolean;
+  categories: Category[];
+  folder: Folder;
+  onChooseCategory: (id: string) => void;
+  onChooseFolder: () => void;
+  onManageCategory: (category: Category) => void;
+  onManage: () => Promise<void>;
+  tasks: Task[];
+  view: View;
+}) {
+  const categoryIds = new Set(categories.map((category) => category.id));
+  return (
+    <div className="folder-nav-group">
+      <CollectionNavRow
+        active={active}
+        count={tasks.filter((task) => categoryIds.has(task.categoryId) && !task.completedAt).length}
+        icon={<FolderIcon size={15} />}
+        label={folder.name}
+        onClick={onChooseFolder}
+        onManage={() => void onManage()}
+      />
+      <div className="folder-category-list">
+        {categories.map((category) => (
+          <CollectionNavRow
+            active={view.kind === 'category' && view.id === category.id}
+            count={
+              tasks.filter((task) => task.categoryId === category.id && !task.completedAt).length
+            }
+            icon={<span className="list-dot" style={{ background: category.color }} />}
+            key={category.id}
+            label={category.name}
+            onClick={() => onChooseCategory(category.id)}
+            onManage={() => onManageCategory(category)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SidebarSection({
   children,
   label,
@@ -798,10 +949,16 @@ function SidebarSection({
   );
 }
 
-function getViewTasks(tasks: Task[], view: View): Task[] {
+function getViewTasks(tasks: Task[], view: View, categories: Category[]): Task[] {
   if (view.kind === 'today') return tasks.filter((task) => task.dueDate === toDateKey(today));
   if (view.kind === 'inbox') return tasks.filter((task) => !task.dueDate);
   if (view.kind === 'category') return tasks.filter((task) => task.categoryId === view.id);
+  if (view.kind === 'folder') {
+    const folderCategoryIds = new Set(
+      categories.filter((category) => category.folderId === view.id).map((category) => category.id),
+    );
+    return tasks.filter((task) => folderCategoryIds.has(task.categoryId));
+  }
   if (view.kind === 'tag') return tasks.filter((task) => task.tagIds.includes(view.id));
   return tasks;
 }
@@ -810,6 +967,7 @@ function getViewTitle(
   view: View,
   categories: { id: string; name: string }[],
   tags: { id: string; name: string }[],
+  folders: { id: string; name: string }[] = [],
 ): string {
   if (view.kind === 'today') return '今天';
   if (view.kind === 'inbox') return '收集箱';
@@ -818,6 +976,7 @@ function getViewTitle(
   if (view.kind === 'trash') return '回收站';
   if (view.kind === 'category')
     return categories.find((item) => item.id === view.id)?.name ?? '分类';
+  if (view.kind === 'folder') return folders.find((item) => item.id === view.id)?.name ?? '文件夹';
   if (view.kind === 'tag') return `#${tags.find((item) => item.id === view.id)?.name ?? '标签'}`;
   return '设置与数据';
 }
@@ -825,17 +984,28 @@ function getViewTitle(
 function navigateDate(date: Date, mode: CalendarMode, amount: number, agendaDays: number): Date {
   if (mode === 'month') return addMonths(date, amount);
   if (mode === 'week') return addWeeks(date, amount);
+  if (mode === 'fiveDay') return addDays(date, amount * 5);
+  if (mode === 'threeDay') return addDays(date, amount * 3);
   if (mode === 'agenda') return addDays(date, amount * agendaDays);
   return addDays(date, amount);
 }
 
-function calendarTitle(date: Date, mode: CalendarMode, agendaDays: number): string {
+function calendarTitle(
+  date: Date,
+  mode: CalendarMode,
+  agendaDays: number,
+  weekStartsOn: 0 | 1,
+): string {
   if (mode === 'month') return format(date, 'yyyy 年 M 月', { locale: zhCN });
   if (mode === 'day') return format(date, 'M 月 d 日 EEEE', { locale: zhCN });
+  if (mode === 'fiveDay' || mode === 'threeDay') {
+    const span = mode === 'fiveDay' ? 4 : 2;
+    return `${format(date, 'M 月 d 日')} - ${format(addDays(date, span), 'M 月 d 日')}`;
+  }
   if (mode === 'agenda') {
     return `${format(date, 'M 月 d 日')} - ${format(addDays(date, agendaDays - 1), 'M 月 d 日')}`;
   }
-  const start = startOfWeek(date, { weekStartsOn: 1 });
+  const start = startOfWeek(date, { weekStartsOn });
   const end = addDays(start, 6);
   return `${format(start, 'M 月 d 日')} - ${format(end, 'M 月 d 日')}`;
 }
@@ -919,6 +1089,32 @@ function SettingsView({
             <option value="7">7 天</option>
             <option value="14">14 天</option>
             <option value="30">30 天</option>
+          </select>
+          <select
+            aria-label="默认日历视图"
+            onChange={(event) =>
+              void onUpdateSettings({
+                defaultCalendarMode: event.target.value as AppSettings['defaultCalendarMode'],
+              })
+            }
+            value={settings.defaultCalendarMode}
+          >
+            <option value="month">月视图</option>
+            <option value="week">周视图</option>
+            <option value="fiveDay">5 日视图</option>
+            <option value="threeDay">3 日视图</option>
+            <option value="day">日视图</option>
+            <option value="agenda">日程视图</option>
+          </select>
+          <select
+            aria-label="每周开始日"
+            onChange={(event) =>
+              void onUpdateSettings({ weekStartsOn: Number(event.target.value) as 0 | 1 })
+            }
+            value={settings.weekStartsOn}
+          >
+            <option value="1">周一开始</option>
+            <option value="0">周日开始</option>
           </select>
           <label>
             <input

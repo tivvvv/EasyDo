@@ -1,5 +1,5 @@
 import type { Category, FilterCriteria, Tag, Task } from '@easydo/domain';
-import { defaultFilterCriteria } from '@easydo/domain';
+import { defaultFilterCriteria, getLocalTimeZone } from '@easydo/domain';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
@@ -10,6 +10,7 @@ import { QuickEditPanel } from '../components/QuickEditPanel';
 const category: Category = {
   color: '#655fd7',
   createdAt: '2026-08-30T00:00:00.000Z',
+  folderId: null,
   id: 'category-work',
   name: '工作',
   order: 0,
@@ -23,6 +24,7 @@ const tag: Tag = {
 };
 
 const task: Task = {
+  allDay: false,
   categoryId: category.id,
   completedAt: null,
   createdAt: '2026-08-30T00:00:00.000Z',
@@ -31,14 +33,20 @@ const task: Task = {
   dueTime: '09:30',
   duration: 30,
   endDate: null,
+  endTime: '10:00',
   id: 'task-1',
+  kind: 'task',
   notes: '',
   order: 0,
+  parentId: null,
   priority: 'medium',
   recurrence: null,
   reminderMinutes: null,
+  reminders: [],
+  seriesId: null,
   subtasks: [],
   tagIds: [tag.id],
+  timeZone: getLocalTimeZone(),
   title: '日历任务',
   updatedAt: '2026-08-30T00:00:00.000Z',
 };

@@ -7,13 +7,13 @@ import { useState } from 'react';
 
 import { getMonthDays, getWeekDays, minutesFromTime, toDateKey } from '../lib/calendar';
 
-export type CalendarMode = 'month' | 'week' | 'day' | 'agenda';
+export type CalendarMode = 'month' | 'week' | 'fiveDay' | 'threeDay' | 'day' | 'agenda';
 
 type CalendarViewProps = {
   categories: Category[];
   currentDate: Date;
   mode: CalendarMode;
-  onAdd: (date: string, time?: string | null) => void;
+  onAdd: (date: string, time?: string | null, duration?: number) => void;
   onEdit: (task: Task) => void;
   onMove: (taskId: string, date: string, time?: string | null) => Promise<void>;
   onQuickEdit: (task: Task) => void;
@@ -53,8 +53,12 @@ function MonthCalendar({
   tasks,
 }: CalendarViewProps) {
   const categoryColors = new Map(categories.map((category) => [category.id, category.color]));
-  const days = getMonthDays(currentDate).filter((day) => propsShowDay(day, settings.showWeekends));
-  const visibleWeekNames = settings.showWeekends ? weekNames : weekNames.slice(0, 5);
+  const days = getMonthDays(currentDate, settings.weekStartsOn).filter((day) =>
+    propsShowDay(day, settings.showWeekends),
+  );
+  const orderedWeekNames =
+    settings.weekStartsOn === 0 ? ['周日', ...weekNames.slice(0, 6)] : weekNames;
+  const visibleWeekNames = settings.showWeekends ? orderedWeekNames : weekNames.slice(0, 5);
 
   return (
     <section className="calendar-layout">
@@ -159,8 +163,11 @@ function TimeCalendar({
   settings,
   tasks,
 }: CalendarViewProps) {
-  const days = (mode === 'week' ? getWeekDays(currentDate) : [currentDate]).filter((day) =>
-    propsShowDay(day, settings.showWeekends),
+  const visibleDays = mode === 'week' ? 7 : mode === 'fiveDay' ? 5 : mode === 'threeDay' ? 3 : 1;
+  const firstDay =
+    mode === 'week' ? getWeekDays(currentDate, settings.weekStartsOn)[0]! : currentDate;
+  const days = Array.from({ length: visibleDays }, (_, index) => addDays(firstDay, index)).filter(
+    (day) => propsShowDay(day, settings.showWeekends),
   );
   const categoryColors = new Map(categories.map((category) => [category.id, category.color]));
   const hours = Array.from(
@@ -170,6 +177,11 @@ function TimeCalendar({
   const hourHeight = settings.calendarDensity === 'compact' ? 42 : 56;
   const calendarHeight = (settings.workdayEnd - settings.workdayStart) * hourHeight;
   const [dragPreview, setDragPreview] = useState<{ date: string; time: string } | null>(null);
+  const [rangePreview, setRangePreview] = useState<{
+    date: string;
+    duration: number;
+    startTime: string;
+  } | null>(null);
 
   const unscheduled = tasks.filter((task) => !task.dueDate && !task.completedAt);
 
@@ -264,6 +276,61 @@ function TimeCalendar({
               <div
                 className="schedule-column"
                 key={dateKey}
+                onPointerDown={(event) => {
+                  if ((event.target as Element).closest('.timed-task')) return;
+                  const column = event.currentTarget;
+                  const startY = event.clientY;
+                  const startTime = timeFromClientY(
+                    column,
+                    startY,
+                    settings.workdayStart,
+                    settings.workdayEnd,
+                    hourHeight,
+                  );
+                  const handleMove = (moveEvent: PointerEvent) => {
+                    const endTime = timeFromClientY(
+                      column,
+                      moveEvent.clientY,
+                      settings.workdayStart,
+                      settings.workdayEnd,
+                      hourHeight,
+                    );
+                    setRangePreview({
+                      date: dateKey,
+                      duration: Math.max(
+                        15,
+                        Math.abs(minutesFromTime(endTime) - minutesFromTime(startTime)),
+                      ),
+                      startTime:
+                        minutesFromTime(endTime) < minutesFromTime(startTime) ? endTime : startTime,
+                    });
+                  };
+                  const handleUp = (upEvent: PointerEvent) => {
+                    window.removeEventListener('pointermove', handleMove);
+                    window.removeEventListener('pointerup', handleUp);
+                    if (Math.abs(upEvent.clientY - startY) >= 6) {
+                      const endTime = timeFromClientY(
+                        column,
+                        upEvent.clientY,
+                        settings.workdayStart,
+                        settings.workdayEnd,
+                        hourHeight,
+                      );
+                      const duration = Math.max(
+                        15,
+                        Math.abs(minutesFromTime(endTime) - minutesFromTime(startTime)),
+                      );
+                      onAdd(
+                        dateKey,
+                        minutesFromTime(endTime) < minutesFromTime(startTime) ? endTime : startTime,
+                        duration,
+                      );
+                    }
+                    setRangePreview(null);
+                  };
+                  window.addEventListener('pointermove', handleMove);
+                  window.addEventListener('pointerup', handleUp, { once: true });
+                }}
                 onDoubleClick={(event) =>
                   onAdd(
                     dateKey,
@@ -328,6 +395,20 @@ function TimeCalendar({
                     }}
                   >
                     {dragPreview.time}
+                  </span>
+                )}
+                {rangePreview?.date === dateKey && (
+                  <span
+                    className="range-time-preview"
+                    style={{
+                      height: Math.max(18, (rangePreview.duration / 60) * hourHeight),
+                      top:
+                        ((minutesFromTime(rangePreview.startTime) - settings.workdayStart * 60) /
+                          60) *
+                        hourHeight,
+                    }}
+                  >
+                    {rangePreview.startTime} · {rangePreview.duration} 分钟
                   </span>
                 )}
                 {layoutTimedTasks(timedTasks).map(({ column, columns, task }) => {
@@ -617,6 +698,16 @@ function timeFromPointer(
   );
   const snapped = Math.round(minutes / 15) * 15;
   return `${String(Math.floor(snapped / 60)).padStart(2, '0')}:${String(snapped % 60).padStart(2, '0')}`;
+}
+
+function timeFromClientY(
+  element: HTMLElement,
+  clientY: number,
+  workdayStart: number,
+  workdayEnd: number,
+  hourHeight: number,
+): string {
+  return timeFromPointer({ clientY, currentTarget: element }, workdayStart, workdayEnd, hourHeight);
 }
 
 function propsShowDay(day: Date, showWeekends: boolean): boolean {

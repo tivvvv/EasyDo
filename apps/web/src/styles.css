@@ -2262,6 +2262,46 @@ kbd {
   opacity: 0.25;
 }
 
+.subtask-more {
+  background: var(--surface-soft);
+  border-radius: 8px;
+  grid-column: 1 / -1;
+  padding: 6px 8px;
+}
+
+.subtask-more summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.subtask-more > div {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.subtask-more label {
+  color: var(--muted);
+  display: grid;
+  font-size: 10px;
+  gap: 4px;
+}
+
+.subtask-more input,
+.subtask-more select {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-width: 0;
+  padding: 6px;
+}
+
+.subtask-more .subtask-notes {
+  grid-column: 1 / -1;
+}
+
 .settings-inline-fields {
   align-items: center;
   display: flex;
@@ -2346,6 +2386,160 @@ kbd {
   padding: 4px 7px;
 }
 
+.quick-capture {
+  align-items: center;
+  background: linear-gradient(135deg, #ffffff 0%, #f6f5ff 100%);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
+  border-radius: 13px;
+  box-shadow: 0 8px 24px rgba(59, 48, 125, 0.06);
+  color: var(--primary);
+  display: flex;
+  gap: 9px;
+  margin: 0 24px 14px;
+  padding: 7px 8px 7px 12px;
+}
+
+.quick-capture input {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  outline: 0;
+  padding: 7px 3px;
+}
+
+.quick-capture button {
+  background: var(--primary);
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  font-weight: 650;
+  padding: 8px 15px;
+}
+
+.quick-capture button:disabled {
+  opacity: 0.45;
+}
+
+.folder-add-button {
+  color: var(--muted) !important;
+  font-size: 11px !important;
+  justify-content: flex-start !important;
+  margin: 0 8px 4px;
+  width: calc(100% - 16px) !important;
+}
+
+.folder-nav-group {
+  border-left: 1px solid var(--line);
+  margin-left: 12px;
+}
+
+.folder-category-list {
+  margin-left: 10px;
+}
+
+.folder-category-list .collection-nav-row > button:first-child {
+  font-size: 12px;
+}
+
+.list-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.list-heading-actions select {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 8px 9px;
+}
+
+.task-group + .task-group {
+  margin-top: 15px;
+}
+
+.task-group-heading {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.reminder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -4px;
+}
+
+.reminder-chips > span {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary);
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px 9px;
+}
+
+.reminder-chips select,
+.reminder-chips button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 11px;
+  padding: 0;
+}
+
+.reminder-chips button {
+  display: flex;
+}
+
+.notes-preview {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  margin-top: 6px;
+  padding: 7px 9px;
+}
+
+.notes-preview summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.notes-preview div {
+  color: var(--text);
+  margin-top: 7px;
+}
+
+.notes-preview p {
+  margin: 3px 0;
+}
+
+.range-time-preview {
+  background: color-mix(in srgb, var(--primary) 14%, #fff);
+  border: 1px dashed var(--primary);
+  border-radius: 7px;
+  color: var(--primary);
+  font-size: 10px;
+  left: 4px;
+  padding: 4px 6px;
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  z-index: 6;
+}
+
 @media (max-width: 900px) {
   .filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2353,6 +2547,13 @@ kbd {
 }
 
 @media (max-width: 720px) {
+  .quick-capture {
+    margin: 0 12px 10px;
+  }
+  .list-heading-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
   .filter-grid {
     grid-template-columns: 1fr;
   }
@@ -2375,6 +2576,12 @@ kbd {
   }
   .subtask-edit-row {
     grid-template-columns: 26px minmax(0, 1fr) 24px 24px 26px;
+  }
+  .subtask-more > div {
+    grid-template-columns: 1fr;
+  }
+  .subtask-more .subtask-notes {
+    grid-column: auto;
   }
 }
 

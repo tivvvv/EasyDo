@@ -22,15 +22,15 @@ export function fromDateKey(dateKey: string): Date {
   return new Date(year, month - 1, day);
 }
 
-export function getMonthDays(date: Date): Date[] {
+export function getMonthDays(date: Date, weekStartsOn: 0 | 1 = 1): Date[] {
   return eachDayOfInterval({
-    start: startOfWeek(startOfMonth(date), { weekStartsOn: 1 }),
-    end: endOfWeek(endOfMonth(date), { weekStartsOn: 1 }),
+    start: startOfWeek(startOfMonth(date), { weekStartsOn }),
+    end: endOfWeek(endOfMonth(date), { weekStartsOn }),
   });
 }
 
-export function getWeekDays(date: Date): Date[] {
-  const start = startOfWeek(date, { weekStartsOn: 1 });
+export function getWeekDays(date: Date, weekStartsOn: 0 | 1 = 1): Date[] {
+  const start = startOfWeek(date, { weekStartsOn });
   return Array.from({ length: 7 }, (_, index) => addDays(start, index));
 }
 

@@ -60,9 +60,12 @@ test('管理重复任务, 子任务和回收站', async ({ page, isMobile }) => 
     .first()
     .click();
   await page.getByLabel('任务标题').fill('每日验收任务');
-  await page.locator('input[type="time"]').fill('09:30');
+  await page.getByLabel('时间', { exact: true }).fill('09:30');
   await page.getByLabel(/重复/).selectOption('daily');
-  await page.getByLabel('提醒').selectOption('10');
+  await page.getByRole('combobox', { name: '提醒', exact: true }).selectOption('10');
+  await page.getByRole('combobox', { name: '提醒', exact: true }).selectOption('30');
+  await expect(page.getByLabel('已设置提醒')).toContainText('提前 10 分钟');
+  await expect(page.getByLabel('已设置提醒')).toContainText('提前 30 分钟');
   await page.getByRole('button', { name: '添加子任务' }).click();
   await page.getByRole('textbox', { name: '子任务 1' }).fill('检查日程');
   await page.getByRole('button', { name: '创建任务' }).click();
@@ -166,4 +169,52 @@ test('保存日历显示偏好和查看操作记录', async ({ page, isMobile })
   await expect(page.getByText('日历偏好已保存.')).toBeVisible();
   await page.getByRole('button', { name: '操作记录' }).click();
   await expect(page.getByRole('heading', { level: 2, name: '操作记录' })).toBeVisible();
+});
+
+test('自然语言快速添加, 多日历和任务分组', async ({ page, isMobile }) => {
+  await page.goto('/');
+  await page.getByLabel('快速添加任务').fill('今天下午3点 版本验收 #专注 !高 持续2小时 提前30分钟');
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await expect(page.getByText('任务已快速添加.')).toBeVisible();
+  await expect(page.getByText('版本验收').first()).toBeVisible();
+
+  await page.getByRole('button', { name: '5 日', exact: true }).click();
+  await expect(page.locator('.time-calendar.fiveDay')).toBeVisible();
+  await page.getByRole('button', { name: '3 日', exact: true }).click();
+  await expect(page.locator('.time-calendar.threeDay')).toBeVisible();
+
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: /全部任务/ }).click();
+  await page.getByLabel('任务分组').selectOption('priority');
+  await page.getByLabel('任务排序').selectOption('date');
+  await expect(page.locator('.task-group-heading', { hasText: '高优先级' })).toBeVisible();
+});
+
+test('创建文件夹并归档分类', async ({ page, isMobile }) => {
+  test.skip(isMobile, '文件夹管理流程由桌面端覆盖.');
+  await page.goto('/');
+  page.once('dialog', (dialog) => dialog.accept('核心项目'));
+  await page.getByRole('button', { name: '新建文件夹' }).click();
+  await expect(page.getByRole('button', { name: '核心项目', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '编辑工作' }).click();
+  await page.getByLabel('所属文件夹').selectOption({ label: '核心项目' });
+  await page.getByRole('button', { name: '保存更改' }).click();
+  await expect(
+    page.locator('.folder-nav-group').getByRole('button', { name: /^工作/ }),
+  ).toBeVisible();
+});
+
+test('在日历中框选时间段创建任务', async ({ page, isMobile }) => {
+  test.skip(isMobile, '精确指针框选由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '日', exact: true }).click();
+  const column = page.locator('.schedule-column').first();
+  const box = await column.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 156, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.getByRole('dialog', { name: '安排一件事' })).toBeVisible();
+  await expect(page.getByLabel('预计时长')).toHaveValue('60');
 });

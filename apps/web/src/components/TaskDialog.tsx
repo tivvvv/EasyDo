@@ -7,7 +7,15 @@ import type {
   TaskDraft,
   TaskTemplate,
 } from '@easydo/domain';
-import { createId, priorityLabels } from '@easydo/domain';
+import {
+  createId,
+  createRecurrenceRule,
+  createReminder,
+  createSubtask,
+  getLocalTimeZone,
+  priorityLabels,
+  taskKindLabels,
+} from '@easydo/domain';
 import {
   ArrowDown,
   ArrowUp,
@@ -26,6 +34,7 @@ import { useEffect, useId, useState } from 'react';
 type TaskDialogProps = {
   categories: Category[];
   defaultDate: string | null;
+  defaultDuration?: number;
   defaultTime?: string | null;
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
@@ -38,23 +47,30 @@ type TaskDialogProps = {
 };
 
 const emptyDraft: TaskDraft = {
+  allDay: true,
   categoryId: 'category-work',
   dueDate: null,
   dueTime: null,
   duration: 30,
   endDate: null,
+  endTime: null,
+  kind: 'task',
   notes: '',
+  parentId: null,
   priority: 'none',
   recurrence: null,
   reminderMinutes: null,
+  reminders: [],
   subtasks: [],
   tagIds: [],
+  timeZone: getLocalTimeZone(),
   title: '',
 };
 
 export function TaskDialog({
   categories,
   defaultDate,
+  defaultDuration = 30,
   defaultTime = null,
   onClose,
   onDelete,
@@ -69,17 +85,23 @@ export function TaskDialog({
   const [draft, setDraft] = useState<TaskDraft>(() =>
     task
       ? {
+          allDay: task.allDay,
           categoryId: task.categoryId,
           dueDate: task.dueDate,
           dueTime: task.dueTime,
           duration: task.duration,
           endDate: task.endDate,
+          endTime: task.endTime,
+          kind: task.kind,
           notes: task.notes,
+          parentId: task.parentId,
           priority: task.priority,
           recurrence: task.recurrence,
           reminderMinutes: task.reminderMinutes,
+          reminders: task.reminders,
           subtasks: task.subtasks,
           tagIds: task.tagIds,
+          timeZone: task.timeZone,
           title: task.title,
         }
       : {
@@ -87,6 +109,8 @@ export function TaskDialog({
           categoryId: categories[0]?.id ?? '',
           dueDate: defaultDate,
           dueTime: defaultDate ? defaultTime : null,
+          duration: defaultDuration,
+          allDay: !defaultTime,
         },
   );
   const [saving, setSaving] = useState(false);
@@ -201,6 +225,22 @@ export function TaskDialog({
             />
           </label>
 
+          <fieldset className="choice-field compact-choice-field">
+            <legend>条目类型</legend>
+            <div className="scope-choices">
+              {(['task', 'event', 'note'] as const).map((kind) => (
+                <button
+                  className={draft.kind === kind ? 'selected' : ''}
+                  key={kind}
+                  onClick={() => setDraft({ ...draft, kind })}
+                  type="button"
+                >
+                  {taskKindLabels[kind]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
           <label className="field full-field">
             <span>备注</span>
             <textarea
@@ -210,6 +250,12 @@ export function TaskDialog({
               rows={3}
               value={draft.notes}
             />
+            {draft.notes && (
+              <details className="notes-preview">
+                <summary>预览备注</summary>
+                <div>{renderNotePreview(draft.notes)}</div>
+              </details>
+            )}
           </label>
 
           <div className="field-grid">
@@ -225,7 +271,9 @@ export function TaskDialog({
                     ...draft,
                     dueDate,
                     dueTime: dueDate ? draft.dueTime : null,
+                    allDay: dueDate ? draft.allDay : true,
                     endDate: dueDate ? draft.endDate : null,
+                    endTime: dueDate ? draft.endTime : null,
                     recurrence: dueDate ? draft.recurrence : null,
                   });
                 }}
@@ -250,9 +298,24 @@ export function TaskDialog({
               </span>
               <input
                 disabled={!draft.dueDate}
-                onChange={(event) => setDraft({ ...draft, dueTime: event.target.value || null })}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    allDay: !event.target.value,
+                    dueTime: event.target.value || null,
+                  })
+                }
                 type="time"
                 value={draft.dueTime ?? ''}
+              />
+            </label>
+            <label className="field">
+              <span>结束时间</span>
+              <input
+                disabled={!draft.dueDate || draft.allDay}
+                onChange={(event) => setDraft({ ...draft, endTime: event.target.value || null })}
+                type="time"
+                value={draft.endTime ?? ''}
               />
             </label>
             <label className="field">
@@ -294,9 +357,9 @@ export function TaskDialog({
                     ...draft,
                     recurrence: frequency
                       ? {
-                          endsOn: null,
-                          frequency: frequency as NonNullable<TaskDraft['recurrence']>['frequency'],
-                          interval: 1,
+                          ...createRecurrenceRule(
+                            frequency as NonNullable<TaskDraft['recurrence']>['frequency'],
+                          ),
                           weekDays:
                             frequency === 'weekly' && draft.dueDate
                               ? [new Date(`${draft.dueDate}T12:00:00`).getDay()]
@@ -319,15 +382,19 @@ export function TaskDialog({
               <span>提醒</span>
               <select
                 disabled={!draft.dueDate || !draft.dueTime}
-                onChange={(event) =>
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  const offsetMinutes = Number(event.target.value);
+                  if (draft.reminders.some((item) => item.offsetMinutes === offsetMinutes)) return;
                   setDraft({
                     ...draft,
-                    reminderMinutes: event.target.value ? Number(event.target.value) : null,
-                  })
-                }
-                value={draft.reminderMinutes ?? ''}
+                    reminderMinutes: draft.reminderMinutes ?? offsetMinutes,
+                    reminders: [...draft.reminders, createReminder(offsetMinutes)],
+                  });
+                }}
+                value=""
               >
-                <option value="">不提醒</option>
+                <option value="">添加提醒</option>
                 <option value="0">任务开始时</option>
                 <option value="5">提前 5 分钟</option>
                 <option value="10">提前 10 分钟</option>
@@ -337,6 +404,47 @@ export function TaskDialog({
               </select>
             </label>
           </div>
+
+          {draft.reminders.length > 0 && (
+            <div className="reminder-chips" aria-label="已设置提醒">
+              {draft.reminders.map((reminder) => (
+                <span key={reminder.id}>
+                  {formatReminder(reminder.offsetMinutes)}
+                  <select
+                    aria-label={`${formatReminder(reminder.offsetMinutes)}基准`}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        reminders: draft.reminders.map((item) =>
+                          item.id === reminder.id
+                            ? { ...item, reference: event.target.value as 'end' | 'start' }
+                            : item,
+                        ),
+                      })
+                    }
+                    value={reminder.reference}
+                  >
+                    <option value="start">开始时间</option>
+                    <option value="end">结束时间</option>
+                  </select>
+                  <button
+                    aria-label={`删除${formatReminder(reminder.offsetMinutes)}提醒`}
+                    onClick={() => {
+                      const reminders = draft.reminders.filter((item) => item.id !== reminder.id);
+                      setDraft({
+                        ...draft,
+                        reminderMinutes: reminders[0]?.offsetMinutes ?? null,
+                        reminders,
+                      });
+                    }}
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           {draft.recurrence && (
             <div className="recurrence-options">
@@ -360,6 +468,50 @@ export function TaskDialog({
                   value={draft.recurrence.interval}
                 />
               </label>
+              <label className="field">
+                <span>完成次数后结束</span>
+                <input
+                  min={1}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      recurrence: draft.recurrence
+                        ? {
+                            ...draft.recurrence,
+                            endAfterOccurrences: event.target.value
+                              ? Number(event.target.value)
+                              : null,
+                          }
+                        : null,
+                    })
+                  }
+                  placeholder="不限"
+                  type="number"
+                  value={draft.recurrence.endAfterOccurrences ?? ''}
+                />
+              </label>
+              {draft.recurrence.frequency === 'monthly' && (
+                <label className="field">
+                  <span>每月规则</span>
+                  <select
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        recurrence: draft.recurrence
+                          ? {
+                              ...draft.recurrence,
+                              monthMode: event.target.value as 'date' | 'lastDay',
+                            }
+                          : null,
+                      })
+                    }
+                    value={draft.recurrence.monthMode}
+                  >
+                    <option value="date">同一日期</option>
+                    <option value="lastDay">每月最后一天</option>
+                  </select>
+                </label>
+              )}
               <label className="field">
                 <span>结束日期</span>
                 <input
@@ -508,6 +660,88 @@ export function TaskDialog({
                   >
                     <X size={15} />
                   </button>
+                  <details className="subtask-more">
+                    <summary>详细设置</summary>
+                    <div>
+                      <label>
+                        日期
+                        <input
+                          aria-label={`子任务 ${index + 1} 日期`}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              subtasks: draft.subtasks.map((item) =>
+                                item.id === subtask.id
+                                  ? { ...item, dueDate: event.target.value || null }
+                                  : item,
+                              ),
+                            })
+                          }
+                          type="date"
+                          value={subtask.dueDate ?? ''}
+                        />
+                      </label>
+                      <label>
+                        时间
+                        <input
+                          aria-label={`子任务 ${index + 1} 时间`}
+                          disabled={!subtask.dueDate}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              subtasks: draft.subtasks.map((item) =>
+                                item.id === subtask.id
+                                  ? { ...item, dueTime: event.target.value || null }
+                                  : item,
+                              ),
+                            })
+                          }
+                          type="time"
+                          value={subtask.dueTime ?? ''}
+                        />
+                      </label>
+                      <label>
+                        优先级
+                        <select
+                          aria-label={`子任务 ${index + 1} 优先级`}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              subtasks: draft.subtasks.map((item) =>
+                                item.id === subtask.id
+                                  ? { ...item, priority: event.target.value as Priority }
+                                  : item,
+                              ),
+                            })
+                          }
+                          value={subtask.priority}
+                        >
+                          <option value="none">无</option>
+                          <option value="low">低</option>
+                          <option value="medium">中</option>
+                          <option value="high">高</option>
+                        </select>
+                      </label>
+                      <label className="subtask-notes">
+                        备注
+                        <input
+                          aria-label={`子任务 ${index + 1} 备注`}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              subtasks: draft.subtasks.map((item) =>
+                                item.id === subtask.id
+                                  ? { ...item, notes: event.target.value }
+                                  : item,
+                              ),
+                            })
+                          }
+                          placeholder="补充执行细节"
+                          value={subtask.notes}
+                        />
+                      </label>
+                    </div>
+                  </details>
                 </div>
               ))}
               <button
@@ -515,10 +749,7 @@ export function TaskDialog({
                 onClick={() =>
                   setDraft({
                     ...draft,
-                    subtasks: [
-                      ...draft.subtasks,
-                      { completedAt: null, id: createId('subtask'), title: '' },
-                    ],
+                    subtasks: [...draft.subtasks, createSubtask()],
                   })
                 }
                 type="button"
@@ -639,4 +870,21 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   const [item] = next.splice(from, 1);
   if (item !== undefined) next.splice(to, 0, item);
   return next;
+}
+
+function formatReminder(minutes: number): string {
+  if (minutes === 0) return '开始时';
+  if (minutes % 1_440 === 0) return `提前 ${minutes / 1_440} 天`;
+  if (minutes % 60 === 0) return `提前 ${minutes / 60} 小时`;
+  return `提前 ${minutes} 分钟`;
+}
+
+function renderNotePreview(notes: string) {
+  return notes.split('\n').map((line, index) => {
+    const content = line
+      .replace(/^#{1,3}\s+/, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/^- \[([ x])\]\s*/i, (_, checked: string) => (checked === 'x' ? '☑ ' : '☐ '));
+    return <p key={`${index}-${line}`}>{content || '\u00a0'}</p>;
+  });
 }

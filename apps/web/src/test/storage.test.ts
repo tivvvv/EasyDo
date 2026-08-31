@@ -1,11 +1,16 @@
 import {
   EasyDoDatabase,
+  Dexie,
   addCategory,
+  addFolder,
   addSavedFilter,
   addTag,
   addTask,
   addTemplate,
   deleteCategory,
+  deleteFolder,
+  deleteSavedFilter,
+  deleteTemplate,
   deleteTag,
   deleteTask,
   DexieTaskRepository,
@@ -18,10 +23,12 @@ import {
   reorderCategories,
   toggleTask,
   updateCategory,
+  updateFolder,
   updateTag,
   updateSettings,
   updateTask,
 } from '@easydo/storage';
+import { getLocalTimeZone } from '@easydo/domain';
 
 describe('本地数据仓库', () => {
   let database: EasyDoDatabase;
@@ -47,6 +54,7 @@ describe('本地数据仓库', () => {
     await database.categories.add({
       color: '#ffffff',
       createdAt: '2026-08-31T00:00:00.000Z',
+      folderId: null,
       id: 'category-only',
       name: '唯一分类',
       order: 0,
@@ -60,17 +68,23 @@ describe('本地数据仓库', () => {
     await initializeDatabase(database);
     const created = await addTask(
       {
+        allDay: false,
         categoryId: 'category-work',
         dueDate: '2026-09-01',
         dueTime: '10:30',
         duration: 45,
         endDate: null,
+        endTime: '11:15',
+        kind: 'task',
         notes: '测试备注',
+        parentId: null,
         priority: 'high',
         recurrence: null,
         reminderMinutes: null,
+        reminders: [],
         subtasks: [],
         tagIds: ['tag-focus'],
+        timeZone: getLocalTimeZone(),
         title: '测试任务',
       },
       database,
@@ -95,6 +109,21 @@ describe('本地数据仓库', () => {
 
     expect((await database.categories.get(category.id))?.name).toBe('副业');
     expect((await database.tags.get(tag.id))?.name).toBe('深度工作');
+  });
+
+  it('创建, 更新和删除分类文件夹时保留分类', async () => {
+    await initializeDatabase(database);
+    const folder = await addFolder('项目', database);
+    await updateCategory(
+      'category-work',
+      { color: '#655fd7', folderId: folder.id, name: '工作' },
+      database,
+    );
+    await updateFolder(folder.id, '长期项目', database);
+    expect(await database.folders.get(folder.id)).toMatchObject({ name: '长期项目' });
+    await deleteFolder(folder.id, database);
+    expect(await database.folders.get(folder.id)).toBeUndefined();
+    expect((await database.categories.get('category-work'))?.folderId).toBeNull();
   });
 
   it('更新和删除分类时重新分配关联任务', async () => {
@@ -136,6 +165,7 @@ describe('本地数据仓库', () => {
     const copy = { ...task, id: `task-${crypto.randomUUID()}`, title: '仓库新增任务' };
     await repository.add(copy);
     expect(await repository.get(copy.id)).toBeDefined();
+    expect(await repository.getBySeries(copy.seriesId ?? 'missing')).toEqual([]);
     await repository.delete(copy.id);
     expect(await repository.get(copy.id)).toBeUndefined();
   });
@@ -164,6 +194,7 @@ describe('本地数据仓库', () => {
     expect(await database.tasks.count()).toBe(backup.tasks.length);
     expect(await database.categories.count()).toBe(backup.categories.length);
     expect(await database.tags.count()).toBe(backup.tags.length);
+    expect(await database.folders.count()).toBe(backup.folders.length);
     expect((await database.settings.get('default'))?.calendarDensity).toBe('comfortable');
   });
 
@@ -175,6 +206,7 @@ describe('本地数据仓库', () => {
       {
         categoryId: 'category-work',
         dateRange: 'next7',
+        kind: 'all',
         priority: 'all',
         status: 'active',
         tagIds: [],
@@ -184,17 +216,23 @@ describe('本地数据仓库', () => {
     const template = await addTemplate(
       '快速任务',
       {
+        allDay: true,
         categoryId: 'category-work',
         dueDate: null,
         dueTime: null,
         duration: 30,
         endDate: null,
+        endTime: null,
+        kind: 'task',
         notes: '',
+        parentId: null,
         priority: 'none',
         recurrence: null,
         reminderMinutes: null,
+        reminders: [],
         subtasks: [],
         tagIds: [],
+        timeZone: getLocalTimeZone(),
         title: '模板任务',
       },
       database,
@@ -205,6 +243,111 @@ describe('本地数据仓库', () => {
     });
     expect(await database.filters.get(filter.id)).toBeDefined();
     expect(await database.templates.get(template.id)).toBeDefined();
+    await deleteSavedFilter(filter.id, database);
+    await deleteTemplate(template.id, database);
+    expect(await database.filters.get(filter.id)).toBeUndefined();
+    expect(await database.templates.get(template.id)).toBeUndefined();
+  });
+
+  it('从 1.2 数据库迁移任务, 设置, 筛选和模板', async () => {
+    const name = `easydo-migration-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(3).stores({
+      activities: 'id, action, createdAt, groupId, taskId',
+      categories: 'id, order, name',
+      filters: 'id, createdAt, name',
+      settings: 'id',
+      tags: 'id, name',
+      tasks:
+        'id, dueDate, dueTime, endDate, categoryId, completedAt, deletedAt, priority, order, createdAt, *tagIds',
+      templates: 'id, createdAt, name',
+    });
+    await legacy.open();
+    const legacyDraft = {
+      categoryId: 'category-old',
+      dueDate: '2026-08-31',
+      dueTime: '09:00',
+      duration: 30,
+      endDate: null,
+      notes: '',
+      priority: 'none',
+      recurrence: { endsOn: null, frequency: 'daily', interval: 1, weekDays: [] },
+      reminderMinutes: 10,
+      subtasks: [{ completedAt: null, id: 'subtask-old', title: '旧步骤' }],
+      tagIds: [],
+      title: '旧任务',
+    };
+    const legacyTask = {
+      ...legacyDraft,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      id: 'task-old',
+      order: 0,
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    await legacy.table('categories').put({
+      color: '#fff',
+      createdAt: legacyTask.createdAt,
+      id: 'category-old',
+      name: '旧分类',
+      order: 0,
+    });
+    await legacy.table('tasks').put(legacyTask);
+    await legacy.table('filters').put({
+      createdAt: legacyTask.createdAt,
+      criteria: {
+        categoryId: null,
+        dateRange: 'all',
+        priority: 'all',
+        status: 'active',
+        tagIds: [],
+      },
+      id: 'filter-old',
+      name: '旧筛选',
+    });
+    await legacy.table('settings').put({
+      agendaDays: 14,
+      calendarDensity: 'comfortable',
+      id: 'default',
+      showWeekends: true,
+      workdayEnd: 22,
+      workdayStart: 7,
+    });
+    await legacy.table('templates').put({
+      createdAt: legacyTask.createdAt,
+      draft: legacyDraft,
+      id: 'template-old',
+      name: '旧模板',
+    });
+    await legacy.table('activities').put({
+      action: 'update',
+      after: legacyTask,
+      before: legacyTask,
+      createdAt: legacyTask.createdAt,
+      groupId: 'group-old',
+      id: 'activity-old',
+      taskId: legacyTask.id,
+    });
+    legacy.close();
+
+    const upgraded = new EasyDoDatabase(name);
+    await upgraded.open();
+    expect(await upgraded.tasks.get('task-old')).toMatchObject({
+      allDay: false,
+      endTime: '09:30',
+      kind: 'task',
+      reminders: [expect.objectContaining({ offsetMinutes: 10 })],
+    });
+    expect((await upgraded.tasks.get('task-old'))?.subtasks[0]).toMatchObject({
+      notes: '',
+      priority: 'none',
+    });
+    expect((await upgraded.filters.get('filter-old'))?.criteria.kind).toBe('all');
+    expect((await upgraded.settings.get('default'))?.taskSort).toBe('manual');
+    expect((await upgraded.templates.get('template-old'))?.draft.kind).toBe('task');
+    expect((await upgraded.activities.get('activity-old'))?.after?.kind).toBe('task');
+    await upgraded.delete();
   });
 
   it('重排任务并读写操作记录', async () => {

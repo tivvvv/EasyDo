@@ -2,18 +2,36 @@ export const priorities = ['none', 'low', 'medium', 'high'] as const;
 
 export type Priority = (typeof priorities)[number];
 
+export type TaskKind = 'event' | 'note' | 'task';
+
+export type Reminder = {
+  id: string;
+  offsetMinutes: number;
+  reference: 'end' | 'start';
+};
+
 export type RecurrenceFrequency = 'daily' | 'monthly' | 'weekdays' | 'weekly' | 'yearly';
 
 export type RecurrenceRule = {
+  completedCount: number;
+  endAfterOccurrences: number | null;
   endsOn: string | null;
+  excludedDates: string[];
   frequency: RecurrenceFrequency;
   interval: number;
+  monthMode: 'date' | 'lastDay';
   weekDays: number[];
 };
 
 export type Subtask = {
   completedAt: string | null;
+  dueDate: string | null;
+  dueTime: string | null;
   id: string;
+  notes: string;
+  priority: Priority;
+  reminderMinutes: number | null;
+  tagIds: string[];
   title: string;
 };
 
@@ -24,8 +42,12 @@ export type CalendarDensity = 'comfortable' | 'compact';
 export type AppSettings = {
   agendaDays: 7 | 14 | 30;
   calendarDensity: CalendarDensity;
+  defaultCalendarMode: 'agenda' | 'day' | 'fiveDay' | 'month' | 'threeDay' | 'week';
   id: 'default';
   showWeekends: boolean;
+  taskGrouping: 'category' | 'date' | 'none' | 'priority';
+  taskSort: 'created' | 'date' | 'manual' | 'priority' | 'updated';
+  weekStartsOn: 0 | 1;
   workdayEnd: number;
   workdayStart: number;
 };
@@ -33,6 +55,7 @@ export type AppSettings = {
 export type FilterCriteria = {
   categoryId: string | null;
   dateRange: 'all' | 'next7' | 'next30' | 'overdue' | 'today' | 'unscheduled';
+  kind: TaskKind | 'all';
   priority: Priority | 'all';
   status: 'active' | 'all' | 'completed';
   tagIds: string[];
@@ -46,6 +69,7 @@ export type SavedFilter = {
 };
 
 export type Task = {
+  allDay: boolean;
   categoryId: string;
   completedAt: string | null;
   createdAt: string;
@@ -54,14 +78,20 @@ export type Task = {
   dueTime: string | null;
   duration: number;
   endDate: string | null;
+  endTime: string | null;
   id: string;
+  kind: TaskKind;
   notes: string;
+  parentId: string | null;
   priority: Priority;
   recurrence: RecurrenceRule | null;
   reminderMinutes: number | null;
+  reminders: Reminder[];
   order: number;
+  seriesId: string | null;
   subtasks: Subtask[];
   tagIds: string[];
+  timeZone: string;
   title: string;
   updatedAt: string;
 };
@@ -88,6 +118,14 @@ export type ActivityRecord = {
 export type Category = {
   color: string;
   createdAt: string;
+  folderId: string | null;
+  id: string;
+  name: string;
+  order: number;
+};
+
+export type Folder = {
+  createdAt: string;
   id: string;
   name: string;
   order: number;
@@ -103,16 +141,22 @@ export type Tag = {
 export type TaskDraft = Pick<
   Task,
   | 'categoryId'
+  | 'allDay'
   | 'dueDate'
   | 'dueTime'
   | 'duration'
   | 'endDate'
+  | 'endTime'
+  | 'kind'
   | 'notes'
+  | 'parentId'
   | 'priority'
   | 'recurrence'
   | 'reminderMinutes'
+  | 'reminders'
   | 'subtasks'
   | 'tagIds'
+  | 'timeZone'
   | 'title'
 >;
 
@@ -123,16 +167,18 @@ export type BackupPayload = {
   categories: Category[];
   exportedAt: string;
   filters: SavedFilter[];
+  folders: Folder[];
   settings: AppSettings;
   tags: Tag[];
   templates: TaskTemplate[];
   tasks: Task[];
-  version: 2;
+  version: 3;
 };
 
 export const defaultFilterCriteria: FilterCriteria = {
   categoryId: null,
   dateRange: 'all',
+  kind: 'all',
   priority: 'all',
   status: 'active',
   tagIds: [],
@@ -141,8 +187,12 @@ export const defaultFilterCriteria: FilterCriteria = {
 export const defaultAppSettings: AppSettings = {
   agendaDays: 14,
   calendarDensity: 'comfortable',
+  defaultCalendarMode: 'month',
   id: 'default',
   showWeekends: true,
+  taskGrouping: 'none',
+  taskSort: 'manual',
+  weekStartsOn: 1,
   workdayEnd: 22,
   workdayStart: 7,
 };
@@ -154,6 +204,50 @@ export const priorityLabels: Record<Priority, string> = {
   none: '无优先级',
 };
 
+export const taskKindLabels: Record<TaskKind, string> = {
+  event: '事件',
+  note: '笔记',
+  task: '任务',
+};
+
+export function createReminder(
+  offsetMinutes: number,
+  reference: Reminder['reference'] = 'start',
+): Reminder {
+  return { id: createId('reminder'), offsetMinutes, reference };
+}
+
+export function createSubtask(title = ''): Subtask {
+  return {
+    completedAt: null,
+    dueDate: null,
+    dueTime: null,
+    id: createId('subtask'),
+    notes: '',
+    priority: 'none',
+    reminderMinutes: null,
+    tagIds: [],
+    title,
+  };
+}
+
+export function createRecurrenceRule(frequency: RecurrenceFrequency): RecurrenceRule {
+  return {
+    completedCount: 0,
+    endAfterOccurrences: null,
+    endsOn: null,
+    excludedDates: [],
+    frequency,
+    interval: 1,
+    monthMode: 'date',
+    weekDays: [],
+  };
+}
+
+export function getLocalTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+}
+
 const priorityWeight: Record<Priority, number> = {
   high: 3,
   low: 1,
@@ -162,7 +256,18 @@ const priorityWeight: Record<Priority, number> = {
 };
 
 export function createId(
-  prefix: 'activity' | 'category' | 'filter' | 'group' | 'subtask' | 'tag' | 'task' | 'template',
+  prefix:
+    | 'activity'
+    | 'category'
+    | 'filter'
+    | 'folder'
+    | 'group'
+    | 'reminder'
+    | 'series'
+    | 'subtask'
+    | 'tag'
+    | 'task'
+    | 'template',
 ): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
@@ -192,7 +297,7 @@ export function matchesTaskSearch(task: Task, search: string): boolean {
     return true;
   }
 
-  const subtaskText = task.subtasks.map((subtask) => subtask.title).join(' ');
+  const subtaskText = task.subtasks.map((subtask) => `${subtask.title} ${subtask.notes}`).join(' ');
   return `${task.title} ${task.notes} ${subtaskText}`.toLocaleLowerCase().includes(normalized);
 }
 
@@ -210,7 +315,7 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
 
   const candidate = value as Partial<BackupPayload>;
   return (
-    candidate.version === 2 &&
+    candidate.version === 3 &&
     Array.isArray(candidate.tasks) &&
     candidate.tasks.every(isTaskRecord) &&
     Array.isArray(candidate.categories) &&
@@ -221,6 +326,8 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
     candidate.templates.every(isTemplateRecord) &&
     Array.isArray(candidate.filters) &&
     candidate.filters.every(isSavedFilterRecord) &&
+    Array.isArray(candidate.folders) &&
+    candidate.folders.every(isFolderRecord) &&
     Array.isArray(candidate.activities) &&
     candidate.activities.every(isActivityRecord) &&
     isSettingsRecord(candidate.settings) &&
@@ -237,6 +344,7 @@ function isTaskRecord(value: unknown): value is Task {
     isNullableString(task.completedAt) &&
     isNullableString(task.deletedAt) &&
     Number.isFinite(task.order) &&
+    isNullableString(task.seriesId) &&
     typeof task.createdAt === 'string' &&
     typeof task.updatedAt === 'string'
   );
@@ -247,16 +355,22 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
   const task = value as Partial<TaskDraft>;
   return (
     typeof task.title === 'string' &&
+    typeof task.allDay === 'boolean' &&
     typeof task.categoryId === 'string' &&
     Number.isFinite(task.duration) &&
     Number(task.duration) > 0 &&
     isNullableString(task.dueDate) &&
     isNullableString(task.dueTime) &&
     isNullableString(task.endDate) &&
+    isNullableString(task.endTime) &&
+    ['event', 'note', 'task'].includes(task.kind ?? '') &&
     typeof task.notes === 'string' &&
+    isNullableString(task.parentId) &&
     priorities.some((priority) => priority === task.priority) &&
     isRecurrenceRecord(task.recurrence) &&
     (task.reminderMinutes === null || Number.isFinite(task.reminderMinutes)) &&
+    Array.isArray(task.reminders) &&
+    task.reminders.every(isReminderRecord) &&
     Array.isArray(task.tagIds) &&
     task.tagIds.every((tagId) => typeof tagId === 'string') &&
     Array.isArray(task.subtasks) &&
@@ -264,8 +378,26 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
       (subtask) =>
         typeof subtask.id === 'string' &&
         typeof subtask.title === 'string' &&
-        isNullableString(subtask.completedAt),
-    )
+        isNullableString(subtask.completedAt) &&
+        isNullableString(subtask.dueDate) &&
+        isNullableString(subtask.dueTime) &&
+        typeof subtask.notes === 'string' &&
+        priorities.some((priority) => priority === subtask.priority) &&
+        (subtask.reminderMinutes === null || Number.isFinite(subtask.reminderMinutes)) &&
+        Array.isArray(subtask.tagIds) &&
+        subtask.tagIds.every((tagId) => typeof tagId === 'string'),
+    ) &&
+    typeof task.timeZone === 'string'
+  );
+}
+
+function isReminderRecord(value: unknown): value is Reminder {
+  if (!value || typeof value !== 'object') return false;
+  const reminder = value as Partial<Reminder>;
+  return (
+    typeof reminder.id === 'string' &&
+    Number.isFinite(reminder.offsetMinutes) &&
+    ['end', 'start'].includes(reminder.reference ?? '')
   );
 }
 
@@ -274,10 +406,17 @@ function isRecurrenceRecord(value: unknown): value is RecurrenceRule | null {
   if (!value || typeof value !== 'object') return false;
   const rule = value as Partial<RecurrenceRule>;
   return (
+    Number.isInteger(rule.completedCount) &&
+    Number(rule.completedCount) >= 0 &&
+    (rule.endAfterOccurrences === null ||
+      (Number.isInteger(rule.endAfterOccurrences) && Number(rule.endAfterOccurrences) > 0)) &&
     ['daily', 'monthly', 'weekdays', 'weekly', 'yearly'].includes(rule.frequency ?? '') &&
     Number.isInteger(rule.interval) &&
     Number(rule.interval) > 0 &&
     isNullableString(rule.endsOn) &&
+    Array.isArray(rule.excludedDates) &&
+    rule.excludedDates.every((date) => typeof date === 'string') &&
+    ['date', 'lastDay'].includes(rule.monthMode ?? '') &&
     Array.isArray(rule.weekDays) &&
     rule.weekDays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)
   );
@@ -290,8 +429,20 @@ function isCategoryRecord(value: unknown): value is Category {
     typeof category.id === 'string' &&
     typeof category.name === 'string' &&
     typeof category.color === 'string' &&
+    isNullableString(category.folderId) &&
     Number.isFinite(category.order) &&
     typeof category.createdAt === 'string'
+  );
+}
+
+function isFolderRecord(value: unknown): value is Folder {
+  if (!value || typeof value !== 'object') return false;
+  const folder = value as Partial<Folder>;
+  return (
+    typeof folder.id === 'string' &&
+    typeof folder.name === 'string' &&
+    Number.isFinite(folder.order) &&
+    typeof folder.createdAt === 'string'
   );
 }
 
@@ -336,6 +487,7 @@ function isFilterCriteriaRecord(value: unknown): value is FilterCriteria {
     ['all', 'next7', 'next30', 'overdue', 'today', 'unscheduled'].includes(
       criteria.dateRange ?? '',
     ) &&
+    (criteria.kind === 'all' || ['event', 'note', 'task'].includes(criteria.kind ?? '')) &&
     (criteria.priority === 'all' || priorities.some((item) => item === criteria.priority)) &&
     ['active', 'all', 'completed'].includes(criteria.status ?? '') &&
     Array.isArray(criteria.tagIds) &&
@@ -366,7 +518,13 @@ function isSettingsRecord(value: unknown): value is AppSettings {
     settings.id === 'default' &&
     [7, 14, 30].includes(settings.agendaDays ?? 0) &&
     ['comfortable', 'compact'].includes(settings.calendarDensity ?? '') &&
+    ['agenda', 'day', 'fiveDay', 'month', 'threeDay', 'week'].includes(
+      settings.defaultCalendarMode ?? '',
+    ) &&
     typeof settings.showWeekends === 'boolean' &&
+    ['category', 'date', 'none', 'priority'].includes(settings.taskGrouping ?? '') &&
+    ['created', 'date', 'manual', 'priority', 'updated'].includes(settings.taskSort ?? '') &&
+    [0, 1].includes(settings.weekStartsOn ?? -1) &&
     Number.isInteger(settings.workdayStart) &&
     Number.isInteger(settings.workdayEnd) &&
     Number(settings.workdayStart) >= 0 &&

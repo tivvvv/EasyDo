@@ -1,5 +1,5 @@
 import type { Category, Priority, Task, TaskDraft } from '@easydo/domain';
-import { ExternalLink, Save, X } from 'lucide-react';
+import { ExternalLink, FastForward, Save, X } from 'lucide-react';
 import { useState } from 'react';
 
 type QuickEditPanelProps = {
@@ -7,6 +7,8 @@ type QuickEditPanelProps = {
   onClose: () => void;
   onFullEdit: (task: Task) => void;
   onSave: (id: string, patch: Partial<TaskDraft>) => Promise<void>;
+  onSkip?: (id: string) => Promise<void>;
+  onPostpone?: (id: string, minutes: number) => Promise<void>;
   task: Task;
 };
 
@@ -15,6 +17,8 @@ export function QuickEditPanel({
   onClose,
   onFullEdit,
   onSave,
+  onSkip,
+  onPostpone,
   task,
 }: QuickEditPanelProps) {
   const [title, setTitle] = useState(task.title);
@@ -81,6 +85,23 @@ export function QuickEditPanel({
           </select>
         </div>
         <footer>
+          {task.recurrence && onSkip && (
+            <button
+              onClick={async () => {
+                await onSkip(task.id);
+                onClose();
+              }}
+              type="button"
+            >
+              <FastForward size={15} />
+              跳过本次
+            </button>
+          )}
+          {task.dueDate && onPostpone && (
+            <button onClick={() => void onPostpone(task.id, 1_440)} type="button">
+              推迟一天
+            </button>
+          )}
           <button onClick={() => onFullEdit(task)} type="button">
             <ExternalLink size={15} />
             完整编辑

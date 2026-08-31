@@ -90,6 +90,18 @@ export function FilterPanel({
             <option value="none">无优先级</option>
           </select>
         </label>
+        <label>
+          <span>条目类型</span>
+          <select
+            onChange={(event) => update({ kind: event.target.value as FilterCriteria['kind'] })}
+            value={criteria.kind}
+          >
+            <option value="all">全部类型</option>
+            <option value="task">任务</option>
+            <option value="event">事件</option>
+            <option value="note">笔记</option>
+          </select>
+        </label>
       </div>
       <fieldset>
         <legend>标签, 可多选</legend>
@@ -122,6 +134,7 @@ export function FilterPanel({
             onApply({
               categoryId: null,
               dateRange: 'all',
+              kind: 'all',
               priority: 'all',
               status: 'active',
               tagIds: [],

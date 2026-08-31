@@ -1,8 +1,17 @@
 import type { Task } from '@easydo/domain';
-import { isBackupPayload, matchesTaskSearch, sortTasks, taskProgress } from '@easydo/domain';
+import {
+  createSubtask,
+  defaultAppSettings,
+  getLocalTimeZone,
+  isBackupPayload,
+  matchesTaskSearch,
+  sortTasks,
+  taskProgress,
+} from '@easydo/domain';
 
 function task(patch: Partial<Task>): Task {
   return {
+    allDay: true,
     categoryId: 'category-work',
     completedAt: null,
     createdAt: '2026-08-30T08:00:00.000Z',
@@ -11,14 +20,20 @@ function task(patch: Partial<Task>): Task {
     dueTime: null,
     duration: 30,
     endDate: null,
+    endTime: null,
     id: crypto.randomUUID(),
+    kind: 'task',
     notes: '',
     order: 0,
     priority: 'none',
+    parentId: null,
     recurrence: null,
     reminderMinutes: null,
+    reminders: [],
+    seriesId: null,
     subtasks: [],
     tagIds: [],
+    timeZone: getLocalTimeZone(),
     title: '默认任务',
     updatedAt: '2026-08-30T08:00:00.000Z',
     ...patch,
@@ -45,7 +60,7 @@ describe('任务领域规则', () => {
   it('同时搜索标题和备注并忽略大小写', () => {
     const candidate = task({
       notes: 'Prepare Launch notes',
-      subtasks: [{ completedAt: null, id: 'subtask-1', title: '联系设计师' }],
+      subtasks: [{ ...createSubtask('联系设计师'), id: 'subtask-1' }],
       title: '季度计划',
     });
 
@@ -61,8 +76,8 @@ describe('任务领域规则', () => {
       taskProgress(
         task({
           subtasks: [
-            { completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-1', title: '完成' },
-            { completedAt: null, id: 'subtask-2', title: '未完成' },
+            { ...createSubtask('完成'), completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-1' },
+            { ...createSubtask('未完成'), id: 'subtask-2' },
           ],
         }),
       ),
@@ -87,6 +102,7 @@ describe('任务领域规则', () => {
         {
           color: '#ffffff',
           createdAt: '2026-08-31T00:00:00.000Z',
+          folderId: null,
           id: 'category-1',
           name: '分类',
           order: 0,
@@ -99,6 +115,7 @@ describe('任务领域规则', () => {
           criteria: {
             categoryId: null,
             dateRange: 'next7',
+            kind: 'all',
             priority: 'all',
             status: 'active',
             tagIds: ['tag-1'],
@@ -107,14 +124,8 @@ describe('任务领域规则', () => {
           name: '近期',
         },
       ],
-      settings: {
-        agendaDays: 14,
-        calendarDensity: 'comfortable',
-        id: 'default',
-        showWeekends: true,
-        workdayEnd: 22,
-        workdayStart: 7,
-      },
+      folders: [],
+      settings: { ...defaultAppSettings },
       tags: [
         {
           color: '#ffffff',
@@ -132,7 +143,7 @@ describe('任务领域规则', () => {
           name: '模板',
         },
       ],
-      version: 2,
+      version: 3,
     };
 
     expect(isBackupPayload(value)).toBe(true);
