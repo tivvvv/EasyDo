@@ -48,6 +48,29 @@ body {
   background: var(--canvas);
   -webkit-font-smoothing: antialiased;
 }
+.desktop-titlebar {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 30px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--surface-soft) 96%, transparent) 0 260px,
+    color-mix(in srgb, var(--canvas) 96%, transparent) 260px 100%
+  );
+  backdrop-filter: blur(20px);
+}
+html[data-runtime='desktop'] .app-shell {
+  min-height: 100vh;
+  padding-top: 30px;
+}
+html[data-runtime='desktop'] .sidebar {
+  top: 30px;
+  height: calc(100vh - 30px);
+}
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,

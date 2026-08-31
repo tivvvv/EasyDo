@@ -1,3 +1,5 @@
 packages:
   - apps/*
   - packages/*
+minimumReleaseAgeExclude:
+  - '@tauri-apps/plugin-notification@2.4.0'

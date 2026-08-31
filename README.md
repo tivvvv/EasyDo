@@ -1,10 +1,10 @@
 # EasyDo
 
-EasyDo 是一个 local-first 的任务管理和日历应用. 第一阶段以 Web 端为主, 后续可演进到移动端和桌面端.
+EasyDo 是一个 local-first 的任务管理和日历应用. 当前提供 Web 端和 macOS 桌面端, 后续可继续演进到移动端.
 
-当前开发版本为 EasyDo 1.6.0. 应用完全在浏览器本地运行, 不需要账号或网络服务.
+当前开发版本为 EasyDo 1.7.0. 应用完全在设备本地运行, 不需要账号或网络服务.
 
-## 1.6 功能
+## 1.7 功能
 
 - 年, 月, 连续 4 周, 周, 5 日, 3 日, 日和可配置范围的日程视图, 按时间展示每天任务.
 - 日历计划收件箱集中展示未安排和已过期任务, 可直接拖到任意日历日期完成规划.
@@ -33,11 +33,15 @@ EasyDo 是一个 local-first 的任务管理和日历应用. 第一阶段以 Web
 - 支持标准 ICS 日历导入和导出, 以及完整数据备份与恢复. 导入前执行严格结构校验并兼容 1.1, 1.2 和 1.3 备份.
 - IndexedDB 本地持久化, 数据不会上传到网络.
 - 桌面和手机自适应界面.
+- 提供基于 Tauri 2 的 macOS 桌面客户端, 复用完整 Web 端界面和数据能力.
+- 桌面端支持原生系统通知, 窗口位置与尺寸恢复, macOS 原生菜单和透明标题栏.
+- 支持构建 Apple Silicon `.app` 和 `.dmg` 安装包, 最低兼容 macOS 12.
 
 ## 目录结构
 
 ```text
 apps/web/              Web 应用入口.
+apps/desktop/          Tauri 2 桌面客户端入口.
 packages/domain/       领域模型与业务规则.
 packages/application/  应用服务与用例编排.
 packages/storage/      存储抽象与平台适配.
@@ -53,6 +57,12 @@ pnpm dev
 
 打开终端显示的本地地址即可使用. 按 `N` 可快速新建任务, 按 `Command + K` 或 `Ctrl + K` 可聚焦搜索框.
 
+macOS 桌面端开发:
+
+```bash
+pnpm desktop:dev
+```
+
 ## 质量检查
 
 ```bash
@@ -63,6 +73,8 @@ pnpm test
 pnpm test:coverage
 pnpm test:e2e
 pnpm build
+pnpm desktop:check
+pnpm desktop:build
 ```
 
 更多规范请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md).

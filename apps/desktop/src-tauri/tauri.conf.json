@@ -1,0 +1,54 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "EasyDo",
+  "version": "1.7.0",
+  "identifier": "com.tivvvv.easydo",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "pnpm --dir ../web dev --host 127.0.0.1 --port 1420 --strictPort",
+    "beforeBuildCommand": "pnpm --dir ../web build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "EasyDo",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 680,
+        "center": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Transparent",
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'",
+      "devCsp": "default-src 'self' http://127.0.0.1:1420; connect-src ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: http://asset.localhost http://127.0.0.1:1420 data: blob:; style-src 'self' 'unsafe-inline' http://127.0.0.1:1420; font-src 'self' data:; script-src 'self' 'unsafe-eval' http://127.0.0.1:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 tivvvv.",
+    "shortDescription": "Local-first task and calendar manager.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    }
+  }
+}

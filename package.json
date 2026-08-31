@@ -1,6 +1,6 @@
 {
   "name": "easydo",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "Local-first task management and calendar application.",
   "type": "module",
@@ -11,6 +11,9 @@
   },
   "scripts": {
     "dev": "pnpm --filter @easydo/web dev",
+    "desktop:build": "pnpm --filter @easydo/desktop build",
+    "desktop:check": "pnpm --filter @easydo/desktop check",
+    "desktop:dev": "pnpm --filter @easydo/desktop dev",
     "build": "pnpm --filter @easydo/web build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

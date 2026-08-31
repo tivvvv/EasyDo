@@ -16,6 +16,8 @@
     "@easydo/application": "workspace:*",
     "@easydo/domain": "workspace:*",
     "@easydo/storage": "workspace:*",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-notification": "2.4.0",
     "date-fns": "4.4.0",
     "dexie-react-hooks": "4.2.0",
     "lucide-react": "1.37.0",
@@ -33,7 +35,7 @@
     "@vitest/coverage-v8": "4.1.11",
     "fake-indexeddb": "6.2.5",
     "jsdom": "30.0.1",
-    "vitest": "4.1.11",
-    "vite": "8.2.2"
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
   }
 }

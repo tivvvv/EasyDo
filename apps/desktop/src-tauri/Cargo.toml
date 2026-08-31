@@ -1,0 +1,30 @@
+[package]
+name = "easydo-desktop"
+version = "1.7.0"
+description = "EasyDo local-first task and calendar desktop application."
+authors = ["tivvvv"]
+repository = "https://github.com/tivvvv/EasyDo"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "easydo_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
