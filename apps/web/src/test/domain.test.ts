@@ -1,5 +1,6 @@
 import type { Task } from '@easydo/domain';
 import {
+  calculateHabitStreak,
   createSubtask,
   defaultAppSettings,
   getLocalTimeZone,
@@ -85,6 +86,20 @@ describe('任务领域规则', () => {
         }),
       ),
     ).toEqual({ completed: 1, total: 2 });
+  });
+
+  it('计算习惯的当前连续天数和历史最长连续天数', () => {
+    expect(
+      calculateHabitStreak(
+        ['2026-08-20', '2026-08-21', '2026-08-28', '2026-08-29', '2026-08-30'],
+        '2026-08-31',
+      ),
+    ).toEqual({ current: 3, longest: 3 });
+    expect(calculateHabitStreak(['2026-08-30', '2026-08-31'], '2026-08-31')).toEqual({
+      current: 2,
+      longest: 2,
+    });
+    expect(calculateHabitStreak([], '2026-08-31')).toEqual({ current: 0, longest: 0 });
   });
 
   it('严格验证备份中的任务, 分类和标签', () => {

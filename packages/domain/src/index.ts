@@ -134,6 +134,10 @@ export type Habit = {
   weekDays: number[];
 };
 
+export type HabitPatch = Partial<
+  Pick<Habit, 'archivedAt' | 'color' | 'frequency' | 'name' | 'target' | 'weekDays'>
+>;
+
 export type FocusSession = {
   createdAt: string;
   durationMinutes: number;
@@ -380,6 +384,41 @@ export function taskProgress(task: Task): { completed: number; total: number } {
     completed: task.subtasks.filter((subtask) => subtask.completedAt).length,
     total: task.subtasks.length,
   };
+}
+
+export function calculateHabitStreak(
+  logs: readonly string[],
+  todayKey: string,
+): { current: number; longest: number } {
+  const uniqueDays = [...new Set(logs)].sort();
+  if (uniqueDays.length === 0) return { current: 0, longest: 0 };
+
+  let longest = 1;
+  let running = 1;
+  for (let index = 1; index < uniqueDays.length; index += 1) {
+    const previous = dateKeyToUtc(uniqueDays[index - 1]!);
+    const current = dateKeyToUtc(uniqueDays[index]!);
+    if ((current - previous) / 86_400_000 === 1) running += 1;
+    else running = 1;
+    longest = Math.max(longest, running);
+  }
+
+  const logSet = new Set(uniqueDays);
+  const today = dateKeyToUtc(todayKey);
+  const currentBase = logSet.has(todayKey) ? today : today - 86_400_000;
+  let current = 0;
+  for (let cursor = currentBase; logSet.has(utcToDateKey(cursor)); cursor -= 86_400_000) {
+    current += 1;
+  }
+  return { current, longest };
+}
+
+function dateKeyToUtc(dateKey: string): number {
+  return Date.parse(`${dateKey}T00:00:00Z`);
+}
+
+function utcToDateKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 export function isBackupPayload(value: unknown): value is BackupPayload {

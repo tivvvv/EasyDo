@@ -24,6 +24,7 @@ type TaskListProps = {
   categories: Category[];
   emptyTitle: string;
   onAdd: () => void;
+  onAddWithPrefill: (prefill: Partial<TaskDraft>) => void;
   onBatchUpdate: (taskIds: string[], patch: Partial<TaskDraft>) => Promise<void>;
   onDuplicate: (taskId: string) => Promise<void>;
   onEdit: (task: Task) => void;
@@ -41,6 +42,7 @@ export function TaskList({
   categories,
   emptyTitle,
   onAdd,
+  onAddWithPrefill,
   onBatchUpdate,
   onDuplicate,
   onEdit,
@@ -193,7 +195,22 @@ export function TaskList({
         <div className="task-list">
           {activeGroups.map(([group, groupTasks]) => (
             <div className="task-group" key={group}>
-              {settings.taskGrouping !== 'none' && <h3 className="task-group-heading">{group}</h3>}
+              {settings.taskGrouping !== 'none' && (
+                <div className="task-group-heading">
+                  <h3>{group}</h3>
+                  <span>{groupTasks.length}</span>
+                  <button
+                    aria-label={`在 ${group} 中添加任务`}
+                    onClick={() =>
+                      onAddWithPrefill(prefillForGroup(group, settings.taskGrouping, categories))
+                    }
+                    type="button"
+                  >
+                    <CirclePlus size={15} />
+                    添加
+                  </button>
+                </div>
+              )}
               {groupTasks.map((task) => (
                 <TaskRow
                   category={categoryMap.get(task.categoryId)}
@@ -347,6 +364,11 @@ function TaskRow({
               </span>
             ))}
         </span>
+        {progress.total > 0 && (
+          <span className="task-progress-bar" aria-label={`子任务完成 ${progress.completed} 项`}>
+            <i style={{ width: `${(progress.completed / progress.total) * 100}%` }} />
+          </span>
+        )}
       </button>
       <span className={`row-priority ${task.priority}`} />
       <details className="task-row-menu">
@@ -435,4 +457,27 @@ function groupForView(
 
 function priorityLabel(priority: Priority): string {
   return { high: '高优先级', low: '低优先级', medium: '中优先级', none: '无优先级' }[priority];
+}
+
+function prefillForGroup(
+  group: string,
+  grouping: AppSettings['taskGrouping'],
+  categories: Category[],
+): Partial<TaskDraft> {
+  if (grouping === 'category') {
+    return { categoryId: categories.find((category) => category.name === group)?.id };
+  }
+  if (grouping === 'date') return { dueDate: group === '未安排日期' ? null : group };
+  if (grouping === 'priority') {
+    const priority = (
+      Object.entries({
+        high: '高优先级',
+        low: '低优先级',
+        medium: '中优先级',
+        none: '无优先级',
+      }) as Array<[Priority, string]>
+    ).find(([, label]) => label === group)?.[0];
+    return priority ? { priority } : {};
+  }
+  return {};
 }

@@ -35,8 +35,12 @@ import { useEffect, useId, useState } from 'react';
 
 type TaskDialogProps = {
   categories: Category[];
+  defaultCategoryId?: string | null;
   defaultDate: string | null;
   defaultDuration?: number;
+  defaultImportant?: boolean;
+  defaultPriority?: Priority;
+  defaultSectionId?: string | null;
   defaultTime?: string | null;
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
@@ -75,8 +79,12 @@ const emptyDraft: TaskDraft = {
 
 export function TaskDialog({
   categories,
+  defaultCategoryId = null,
   defaultDate,
   defaultDuration = 30,
+  defaultImportant = false,
+  defaultPriority = 'none',
+  defaultSectionId = null,
   defaultTime = null,
   onClose,
   onDelete,
@@ -116,11 +124,14 @@ export function TaskDialog({
         }
       : {
           ...emptyDraft,
-          categoryId: categories[0]?.id ?? '',
+          categoryId: defaultCategoryId ?? categories[0]?.id ?? '',
           dueDate: defaultDate,
           dueTime: defaultDate ? defaultTime : null,
           duration: defaultDuration,
           allDay: !defaultTime,
+          important: defaultImportant,
+          priority: defaultPriority,
+          sectionId: defaultSectionId,
         },
   );
   const [saving, setSaving] = useState(false);

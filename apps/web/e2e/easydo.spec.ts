@@ -259,11 +259,37 @@ test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => 
   page.once('dialog', (dialog) => dialog.accept('待评审'));
   await page.getByRole('button', { name: '新建分区' }).click();
   await expect(page.locator('.kanban-column', { hasText: '待评审' })).toBeVisible();
+  await page.getByRole('button', { name: '在 未分区 新建任务' }).click();
+  await expect(
+    page.getByRole('dialog', { name: '安排一件事' }).getByRole('combobox', { name: '分类' }),
+  ).toHaveValue('category-work');
+  await page.getByRole('button', { name: '取消' }).click();
+
+  await page.getByRole('button', { name: '时间线', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '任务时间线' })).toBeVisible();
+  await page.getByLabel('时间线范围').selectOption('14');
+  await expect(page.locator('.timeline-scale > span')).toHaveCount(14);
+
+  await page.getByRole('button', { name: '四象限', exact: true }).click();
+  await page.getByLabel('紧急范围').selectOption('7');
+  await expect(page.locator('.matrix-grid article')).toHaveCount(4);
+
+  await page.getByRole('button', { name: '专注', exact: true }).click();
+  await page.getByRole('button', { name: '开始', exact: true }).click();
+  await page.waitForTimeout(1_100);
+  await page.getByRole('button', { name: '看板', exact: true }).click();
+  await page.getByRole('button', { name: '专注', exact: true }).click();
+  await expect(page.locator('.focus-clock > span')).not.toHaveText('25:00');
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  await page.getByRole('button', { name: '重置', exact: true }).click();
 
   await page.getByRole('button', { name: '习惯', exact: true }).click();
-  page.once('dialog', (dialog) => dialog.accept('每日阅读'));
+  await page.getByLabel('新习惯名称').fill('每日阅读');
   await page.getByRole('button', { name: '新建习惯' }).click();
   await expect(page.getByText('每日阅读')).toBeVisible();
+  await page.getByRole('button', { name: '设置习惯 每日阅读' }).click();
+  await page.getByLabel('周期').selectOption('weekly');
+  await page.getByLabel('目标次数').fill('3');
   await page
     .getByRole('button', { name: /未打卡/ })
     .last()
@@ -272,4 +298,18 @@ test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => 
 
   await page.getByRole('button', { name: '统计', exact: true }).click();
   await expect(page.getByRole('heading', { name: '效率统计' })).toBeVisible();
+});
+
+test('在移动端访问完整效率工具导航', async ({ page, isMobile }) => {
+  test.skip(!isMobile, '此场景专门覆盖移动端效率工具导航.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: '效率工作台' }).click();
+  await expect(page.getByRole('heading', { name: '任务看板' })).toBeVisible();
+  await page.getByRole('button', { name: '时间线', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '任务时间线' })).toBeVisible();
+  await page.getByRole('button', { name: '专注', exact: true }).click();
+  await expect(page.getByRole('button', { name: '短休息' })).toBeVisible();
+  await page.getByRole('button', { name: '习惯', exact: true }).click();
+  await expect(page.getByLabel('新习惯名称')).toBeVisible();
 });

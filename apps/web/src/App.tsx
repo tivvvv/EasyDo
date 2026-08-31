@@ -17,8 +17,7 @@ import {
   priorityLabels,
   sortTasks,
 } from '@easydo/domain';
-import { addDays, addMonths, addWeeks, format, isSameDay, startOfDay, startOfWeek } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { format, isSameDay, startOfDay } from 'date-fns';
 import {
   CalendarDays,
   Check,
@@ -70,6 +69,7 @@ import {
   reorderTasks,
   updateCategory,
   updateFolder,
+  updateHabit,
   updateSettings,
   updateTag,
   toggleHabitLog,
@@ -88,14 +88,16 @@ import { TaskList } from './components/TaskList';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { requestReminderPermission, useTaskReminders } from './hooks/useTaskReminders';
 import { toDateKey } from './lib/calendar';
+import {
+  getCalendarTitle,
+  getViewTasks,
+  getViewTitle,
+  navigateCalendarDate,
+  type WorkspaceView,
+} from './lib/workspaceView';
 import './styles.css';
 
-type View =
-  | {
-      kind:
-        'all' | 'calendar' | 'history' | 'inbox' | 'productivity' | 'settings' | 'today' | 'trash';
-    }
-  | { id: string; kind: 'category' | 'folder' | 'tag' };
+type View = WorkspaceView;
 
 const today = startOfDay(new Date());
 
@@ -113,6 +115,10 @@ export function App() {
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const [dialogTime, setDialogTime] = useState<string | null>(null);
   const [dialogDuration, setDialogDuration] = useState(30);
+  const [dialogCategoryId, setDialogCategoryId] = useState<string | null>(null);
+  const [dialogImportant, setDialogImportant] = useState(false);
+  const [dialogPriority, setDialogPriority] = useState<Priority>('none');
+  const [dialogSectionId, setDialogSectionId] = useState<string | null>(null);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [collectionDialog, setCollectionDialog] = useState<{
     initial: Category | Tag | null;
@@ -123,11 +129,25 @@ export function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
 
-  const openNewTask = (date: string | null, time: string | null = null, duration = 30) => {
+  const openNewTask = (
+    date: string | null,
+    time: string | null = null,
+    duration = 30,
+    prefill: {
+      categoryId?: string;
+      important?: boolean;
+      priority?: Priority;
+      sectionId?: string | null;
+    } = {},
+  ) => {
     setEditingTask(null);
     setDialogDate(date);
     setDialogTime(time);
     setDialogDuration(duration);
+    setDialogCategoryId(prefill.categoryId ?? null);
+    setDialogImportant(prefill.important ?? false);
+    setDialogPriority(prefill.priority ?? 'none');
+    setDialogSectionId(prefill.sectionId ?? null);
     setTaskDialogOpen(true);
   };
 
@@ -210,7 +230,7 @@ export function App() {
       (task) => matchesTaskSearch(task, search) && matchesFilter(task, criteria, toDateKey(today)),
     ),
   );
-  const viewTasks = getViewTasks(filteredTasks, view, categories);
+  const viewTasks = getViewTasks(filteredTasks, view, categories, toDateKey(today));
   const title = getViewTitle(view, categories, tags, folders);
 
   const saveTask = async (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => {
@@ -226,6 +246,8 @@ export function App() {
 
   const chooseView = (nextView: View) => {
     setView(nextView);
+    setFilterOpen(false);
+    setQuickEditingTask(null);
     setMobileMenuOpen(false);
   };
 
@@ -453,7 +475,7 @@ export function App() {
             </p>
             <h1>
               {view.kind === 'calendar'
-                ? calendarTitle(
+                ? getCalendarTitle(
                     currentDate,
                     activeCalendarMode,
                     settings.agendaDays,
@@ -574,7 +596,12 @@ export function App() {
                   aria-label="上一段时间"
                   onClick={() =>
                     setCurrentDate(
-                      navigateDate(currentDate, activeCalendarMode, -1, settings.agendaDays),
+                      navigateCalendarDate(
+                        currentDate,
+                        activeCalendarMode,
+                        -1,
+                        settings.agendaDays,
+                      ),
                     )
                   }
                   type="button"
@@ -586,7 +613,7 @@ export function App() {
                   aria-label="下一段时间"
                   onClick={() =>
                     setCurrentDate(
-                      navigateDate(currentDate, activeCalendarMode, 1, settings.agendaDays),
+                      navigateCalendarDate(currentDate, activeCalendarMode, 1, settings.agendaDays),
                     )
                   }
                   type="button"
@@ -688,11 +715,19 @@ export function App() {
             onDeleteCountdown={deleteCountdown}
             onDeleteHabit={deleteHabit}
             onDeleteSection={deleteSection}
+            onCreateTask={(prefill) =>
+              openNewTask(prefill.dueDate ?? null, null, 30, {
+                categoryId: prefill.categoryId,
+                important: prefill.important,
+                sectionId: prefill.sectionId,
+              })
+            }
             onEdit={(task) => {
               setEditingTask(task);
               setTaskDialogOpen(true);
             }}
             onToggleHabit={toggleHabitLog}
+            onUpdateHabit={updateHabit}
             onUpdateTask={async (id, patch) => {
               await taskService.update(id, patch);
               showToast('任务已调整.', true);
@@ -789,6 +824,14 @@ export function App() {
             categories={categories}
             emptyTitle={search ? '没有匹配的任务' : `${title}是空的`}
             onAdd={() => openNewTask(view.kind === 'today' ? toDateKey(today) : null)}
+            onAddWithPrefill={(prefill) =>
+              openNewTask(prefill.dueDate ?? null, null, 30, {
+                categoryId: prefill.categoryId,
+                important: prefill.important,
+                priority: prefill.priority,
+                sectionId: prefill.sectionId,
+              })
+            }
             onBatchUpdate={async (ids, patch) => {
               await taskService.batchUpdate(ids, patch);
               showToast('批量修改已完成.', true);
@@ -833,8 +876,12 @@ export function App() {
       {taskDialogOpen && (
         <TaskDialog
           categories={categories}
+          defaultCategoryId={dialogCategoryId}
           defaultDate={dialogDate}
           defaultDuration={dialogDuration}
+          defaultImportant={dialogImportant}
+          defaultPriority={dialogPriority}
+          defaultSectionId={dialogSectionId}
           defaultTime={dialogTime}
           onClose={() => setTaskDialogOpen(false)}
           onDelete={async (id) => {
@@ -1065,71 +1112,6 @@ function SidebarSection({
       {children}
     </div>
   );
-}
-
-function getViewTasks(tasks: Task[], view: View, categories: Category[]): Task[] {
-  if (view.kind === 'today') return tasks.filter((task) => task.dueDate === toDateKey(today));
-  if (view.kind === 'inbox') return tasks.filter((task) => !task.dueDate);
-  if (view.kind === 'category') return tasks.filter((task) => task.categoryId === view.id);
-  if (view.kind === 'folder') {
-    const folderCategoryIds = new Set(
-      categories.filter((category) => category.folderId === view.id).map((category) => category.id),
-    );
-    return tasks.filter((task) => folderCategoryIds.has(task.categoryId));
-  }
-  if (view.kind === 'tag') return tasks.filter((task) => task.tagIds.includes(view.id));
-  return tasks;
-}
-
-function getViewTitle(
-  view: View,
-  categories: { id: string; name: string }[],
-  tags: { id: string; name: string }[],
-  folders: { id: string; name: string }[] = [],
-): string {
-  if (view.kind === 'today') return '今天';
-  if (view.kind === 'inbox') return '收集箱';
-  if (view.kind === 'all') return '全部任务';
-  if (view.kind === 'productivity') return '效率工作台';
-  if (view.kind === 'history') return '操作记录';
-  if (view.kind === 'trash') return '回收站';
-  if (view.kind === 'category')
-    return categories.find((item) => item.id === view.id)?.name ?? '分类';
-  if (view.kind === 'folder') return folders.find((item) => item.id === view.id)?.name ?? '文件夹';
-  if (view.kind === 'tag') return `#${tags.find((item) => item.id === view.id)?.name ?? '标签'}`;
-  return '设置与数据';
-}
-
-function navigateDate(date: Date, mode: CalendarMode, amount: number, agendaDays: number): Date {
-  if (mode === 'year') return new Date(date.getFullYear() + amount, date.getMonth(), 1, 12);
-  if (mode === 'month') return addMonths(date, amount);
-  if (mode === 'multiWeek') return addWeeks(date, amount * 4);
-  if (mode === 'week') return addWeeks(date, amount);
-  if (mode === 'fiveDay') return addDays(date, amount * 5);
-  if (mode === 'threeDay') return addDays(date, amount * 3);
-  if (mode === 'agenda') return addDays(date, amount * agendaDays);
-  return addDays(date, amount);
-}
-
-function calendarTitle(
-  date: Date,
-  mode: CalendarMode,
-  agendaDays: number,
-  weekStartsOn: 0 | 1,
-): string {
-  if (mode === 'year') return format(date, 'yyyy 年', { locale: zhCN });
-  if (mode === 'month') return format(date, 'yyyy 年 M 月', { locale: zhCN });
-  if (mode === 'day') return format(date, 'M 月 d 日 EEEE', { locale: zhCN });
-  if (mode === 'fiveDay' || mode === 'threeDay') {
-    const span = mode === 'fiveDay' ? 4 : 2;
-    return `${format(date, 'M 月 d 日')} - ${format(addDays(date, span), 'M 月 d 日')}`;
-  }
-  if (mode === 'agenda') {
-    return `${format(date, 'M 月 d 日')} - ${format(addDays(date, agendaDays - 1), 'M 月 d 日')}`;
-  }
-  const start = startOfWeek(date, { weekStartsOn });
-  const end = addDays(start, mode === 'multiWeek' ? 27 : 6);
-  return `${format(start, 'M 月 d 日')} - ${format(end, 'M 月 d 日')}`;
 }
 
 function SettingsView({

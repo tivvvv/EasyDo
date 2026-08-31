@@ -59,7 +59,6 @@ describe('效率面板', () => {
   it('在效率工作台切换视图并创建习惯', async () => {
     const user = userEvent.setup();
     const onAddHabit = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(window, 'prompt').mockReturnValue('晨间阅读');
     render(
       <ProductivityHub
         categories={[category]}
@@ -73,8 +72,10 @@ describe('效率面板', () => {
         onDeleteCountdown={vi.fn()}
         onDeleteHabit={vi.fn()}
         onDeleteSection={vi.fn()}
+        onCreateTask={vi.fn()}
         onEdit={vi.fn()}
         onToggleHabit={vi.fn()}
+        onUpdateHabit={vi.fn()}
         onUpdateTask={vi.fn()}
         sections={[]}
         settings={{ ...defaultAppSettings }}
@@ -84,6 +85,7 @@ describe('效率面板', () => {
 
     expect(screen.getByRole('heading', { name: '任务看板' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '习惯' }));
+    await user.type(screen.getByRole('textbox', { name: '新习惯名称' }), '晨间阅读');
     await user.click(screen.getByRole('button', { name: '新建习惯' }));
     expect(onAddHabit).toHaveBeenCalledWith('晨间阅读');
     await user.click(screen.getByRole('button', { name: '统计' }));

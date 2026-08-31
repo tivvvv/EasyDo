@@ -1,15 +1,6 @@
-import type {
-  AppSettings,
-  Category,
-  Countdown,
-  FocusSession,
-  Habit,
-  Priority,
-  Section,
-  Task,
-} from '@easydo/domain';
-import { priorityLabels } from '@easydo/domain';
-import { differenceInCalendarDays, format, parseISO, startOfDay, subDays } from 'date-fns';
+import type { Priority, Task } from '@easydo/domain';
+import { priorityLabels, taskProgress } from '@easydo/domain';
+import { addDays, differenceInCalendarDays, format, parseISO, startOfDay, subDays } from 'date-fns';
 import {
   BarChart3,
   Columns3,
@@ -18,41 +9,15 @@ import {
   Hourglass,
   LayoutGrid,
   ListTree,
-  Pause,
-  Play,
   Plus,
-  RotateCcw,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+
+import { FocusTimer, HabitTracker } from './productivity/FocusHabits';
+import type { ProductivityHubProps } from './productivity/types';
 
 type HubMode = 'kanban' | 'timeline' | 'matrix' | 'focus' | 'habits' | 'countdowns' | 'statistics';
-
-type ProductivityHubProps = {
-  categories: Category[];
-  countdowns: Countdown[];
-  focusSessions: FocusSession[];
-  habits: Habit[];
-  onAddCountdown: (title: string, date: string) => Promise<void>;
-  onAddFocusSession: (session: {
-    durationMinutes: number;
-    endedAt: string;
-    mode: FocusSession['mode'];
-    startedAt: string;
-    taskId: string | null;
-  }) => Promise<void>;
-  onAddHabit: (name: string) => Promise<void>;
-  onAddSection: (categoryId: string, name: string) => Promise<void>;
-  onDeleteCountdown: (id: string) => Promise<void>;
-  onDeleteHabit: (id: string) => Promise<void>;
-  onDeleteSection: (id: string) => Promise<void>;
-  onEdit: (task: Task) => void;
-  onToggleHabit: (id: string, dateKey: string) => Promise<void>;
-  onUpdateTask: (id: string, patch: Partial<Task>) => Promise<void>;
-  sections: Section[];
-  settings: AppSettings;
-  tasks: Task[];
-};
 
 const modes: Array<{ icon: typeof Columns3; label: string; value: HubMode }> = [
   { icon: Columns3, label: '看板', value: 'kanban' },
@@ -149,7 +114,15 @@ function KanbanBoard(props: ProductivityHubProps) {
             >
               <header>
                 <strong>{column.name}</strong>
-                <span>{tasks.length}</span>
+                <span title={`${tasks.length} 项任务`}>{tasks.length}</span>
+                <button
+                  aria-label={`在 ${column.name} 新建任务`}
+                  onClick={() => props.onCreateTask({ categoryId, sectionId: column.id })}
+                  title="在此分区新建任务"
+                  type="button"
+                >
+                  <Plus size={13} />
+                </button>
                 {column.id && (
                   <button
                     aria-label={`删除分区 ${column.name}`}
@@ -176,6 +149,16 @@ function KanbanBoard(props: ProductivityHubProps) {
                       {task.dueDate ?? '未安排日期'}
                       {task.dueTime ? ` ${task.dueTime}` : ''}
                     </small>
+                    {task.subtasks.length > 0 && (
+                      <span className="kanban-progress">
+                        <i
+                          style={{
+                            width: `${(taskProgress(task).completed / taskProgress(task).total) * 100}%`,
+                          }}
+                        />
+                        {taskProgress(task).completed}/{taskProgress(task).total}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {tasks.length === 0 && <p className="column-empty">拖动任务到这里</p>}
@@ -189,17 +172,19 @@ function KanbanBoard(props: ProductivityHubProps) {
 }
 
 function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task[] }) {
+  const [rangeDays, setRangeDays] = useState(30);
+  const [rangeStart, setRangeStart] = useState(startOfDay(new Date()));
+  const rangeEnd = addDays(rangeStart, rangeDays - 1);
   const datedTasks = tasks
-    .filter((task) => task.dueDate)
+    .filter(
+      (task) =>
+        task.dueDate &&
+        parseISO(task.dueDate) <= rangeEnd &&
+        parseISO(task.endDate ?? task.dueDate) >= rangeStart,
+    )
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
-  const firstDate = datedTasks[0]?.dueDate
-    ? parseISO(datedTasks[0].dueDate)
-    : startOfDay(new Date());
-  const lastDate = datedTasks.at(-1)?.endDate ?? datedTasks.at(-1)?.dueDate;
-  const totalDays = Math.max(
-    7,
-    lastDate ? differenceInCalendarDays(parseISO(lastDate), firstDate) + 1 : 7,
-  );
+  const ticks = Array.from({ length: rangeDays }, (_, index) => addDays(rangeStart, index));
+  const todayOffset = differenceInCalendarDays(startOfDay(new Date()), rangeStart);
   return (
     <div className="hub-panel">
       <div className="hub-heading">
@@ -207,36 +192,88 @@ function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task
           <p>直观看清跨度和重叠</p>
           <h2>任务时间线</h2>
         </div>
+        <div className="timeline-controls">
+          <button onClick={() => setRangeStart(addDays(rangeStart, -rangeDays))} type="button">
+            上一段
+          </button>
+          <button onClick={() => setRangeStart(startOfDay(new Date()))} type="button">
+            今天
+          </button>
+          <button onClick={() => setRangeStart(addDays(rangeStart, rangeDays))} type="button">
+            下一段
+          </button>
+          <select
+            aria-label="时间线范围"
+            onChange={(event) => setRangeDays(Number(event.target.value))}
+            value={rangeDays}
+          >
+            <option value={14}>14 天</option>
+            <option value={30}>30 天</option>
+            <option value={90}>90 天</option>
+          </select>
+        </div>
       </div>
-      <div className="timeline-list">
-        {datedTasks.map((task) => {
-          const start = differenceInCalendarDays(parseISO(task.dueDate!), firstDate);
-          const span = Math.max(
-            1,
-            task.endDate
-              ? differenceInCalendarDays(parseISO(task.endDate), parseISO(task.dueDate!)) + 1
-              : 1,
-          );
-          return (
-            <button key={task.id} onClick={() => onEdit(task)} type="button">
-              <span>
-                {task.title}
-                <small>
-                  {task.dueDate}
-                  {task.endDate ? ` - ${task.endDate}` : ''}
-                </small>
-              </span>
-              <i
-                className={`timeline-bar ${task.priority}`}
-                style={{
-                  marginLeft: `${(start / totalDays) * 100}%`,
-                  width: `${Math.max(3, (span / totalDays) * 100)}%`,
-                }}
-              />
-            </button>
-          );
-        })}
-        {datedTasks.length === 0 && <EmptyText text="安排任务日期后, 时间线会显示任务跨度." />}
+      <div className="timeline-window">
+        <div
+          className="timeline-scale"
+          style={{ gridTemplateColumns: `repeat(${rangeDays}, 1fr)` }}
+        >
+          {ticks.map((day, index) => (
+            <span
+              className={
+                format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? 'today' : ''
+              }
+              key={day.toISOString()}
+            >
+              {(rangeDays <= 14 || index % (rangeDays === 30 ? 3 : 7) === 0) && (
+                <>
+                  <strong>{format(day, 'd')}</strong>
+                  <small>{format(day, index === 0 || day.getDate() === 1 ? 'M 月' : 'EEE')}</small>
+                </>
+              )}
+            </span>
+          ))}
+        </div>
+        <div className="timeline-list">
+          {todayOffset >= 0 && todayOffset < rangeDays && (
+            <i
+              aria-hidden="true"
+              className="timeline-today-line"
+              style={{ left: `${((todayOffset + 0.5) / rangeDays) * 100}%` }}
+            />
+          )}
+          {datedTasks.map((task) => {
+            const start = Math.max(
+              0,
+              differenceInCalendarDays(parseISO(task.dueDate!), rangeStart),
+            );
+            const span = Math.max(
+              1,
+              task.endDate
+                ? differenceInCalendarDays(parseISO(task.endDate), parseISO(task.dueDate!)) + 1
+                : 1,
+            );
+            return (
+              <button key={task.id} onClick={() => onEdit(task)} type="button">
+                <span>
+                  {task.title}
+                  <small>
+                    {task.dueDate}
+                    {task.endDate ? ` - ${task.endDate}` : ''}
+                  </small>
+                </span>
+                <i
+                  className={`timeline-bar ${task.priority}`}
+                  style={{
+                    marginLeft: `${(start / rangeDays) * 100}%`,
+                    width: `${Math.max(2, (Math.min(span, rangeDays - start) / rangeDays) * 100)}%`,
+                  }}
+                />
+              </button>
+            );
+          })}
+          {datedTasks.length === 0 && <EmptyText text="当前时间范围内还没有已安排任务." />}
+        </div>
       </div>
     </div>
   );
@@ -244,13 +281,15 @@ function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task
 
 function EisenhowerMatrix(props: ProductivityHubProps) {
   const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const [urgentDays, setUrgentDays] = useState(1);
+  const urgentKey = format(addDays(new Date(), urgentDays - 1), 'yyyy-MM-dd');
   const quadrants = [
-    { important: true, label: '重要且紧急', urgent: true },
-    { important: true, label: '重要不紧急', urgent: false },
-    { important: false, label: '紧急不重要', urgent: true },
-    { important: false, label: '不重要不紧急', urgent: false },
+    { hint: '立即做', important: true, label: '重要且紧急', urgent: true },
+    { hint: '计划做', important: true, label: '重要不紧急', urgent: false },
+    { hint: '择机做', important: false, label: '紧急不重要', urgent: true },
+    { hint: '减少做', important: false, label: '不重要不紧急', urgent: false },
   ];
-  const isUrgent = (task: Task) => Boolean(task.dueDate && task.dueDate <= todayKey);
+  const isUrgent = (task: Task) => Boolean(task.dueDate && task.dueDate <= urgentKey);
   return (
     <div className="hub-panel">
       <div className="hub-heading">
@@ -258,31 +297,57 @@ function EisenhowerMatrix(props: ProductivityHubProps) {
           <p>用重要和紧急做取舍</p>
           <h2>四象限</h2>
         </div>
+        <label className="matrix-urgency">
+          紧急范围
+          <select
+            onChange={(event) => setUrgentDays(Number(event.target.value))}
+            value={urgentDays}
+          >
+            <option value={1}>今天到期</option>
+            <option value={3}>3 天内</option>
+            <option value={7}>7 天内</option>
+          </select>
+        </label>
       </div>
       <div className="matrix-grid">
-        {quadrants.map((quadrant) => (
-          <article
-            key={quadrant.label}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              const id = event.dataTransfer.getData('text/task-id');
-              if (!id) return;
-              const task = props.tasks.find((item) => item.id === id);
-              const patch: Partial<Task> = { important: quadrant.important };
-              if (task && quadrant.urgent !== isUrgent(task))
-                patch.dueDate = quadrant.urgent ? todayKey : null;
-              void props.onUpdateTask(id, patch);
-            }}
-          >
-            <header>
-              <strong>{quadrant.label}</strong>
-            </header>
-            {props.tasks
-              .filter(
-                (task) =>
-                  task.important === quadrant.important && isUrgent(task) === quadrant.urgent,
-              )
-              .map((task) => (
+        {quadrants.map((quadrant) => {
+          const quadrantTasks = props.tasks.filter(
+            (task) => task.important === quadrant.important && isUrgent(task) === quadrant.urgent,
+          );
+          return (
+            <article
+              key={quadrant.label}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                const id = event.dataTransfer.getData('text/task-id');
+                if (!id) return;
+                const task = props.tasks.find((item) => item.id === id);
+                const patch: Partial<Task> = { important: quadrant.important };
+                if (task && quadrant.urgent !== isUrgent(task))
+                  patch.dueDate = quadrant.urgent ? todayKey : null;
+                void props.onUpdateTask(id, patch);
+              }}
+            >
+              <header>
+                <span>
+                  <strong>{quadrant.label}</strong>
+                  <small>{quadrant.hint}</small>
+                </span>
+                <b>{quadrantTasks.length}</b>
+                <button
+                  aria-label={`在 ${quadrant.label} 新建任务`}
+                  onClick={() =>
+                    props.onCreateTask({
+                      dueDate: quadrant.urgent ? todayKey : null,
+                      important: quadrant.important,
+                    })
+                  }
+                  type="button"
+                >
+                  <Plus size={14} />
+                </button>
+              </header>
+              {quadrantTasks.map((task) => (
                 <button
                   draggable
                   key={task.id}
@@ -292,158 +357,14 @@ function EisenhowerMatrix(props: ProductivityHubProps) {
                 >
                   <span className={`priority-dot ${task.priority}`} />
                   {task.title}
+                  <small>{task.dueDate ?? '未安排'}</small>
                 </button>
               ))}
-          </article>
-        ))}
+              {quadrantTasks.length === 0 && <p>拖入任务或点击添加</p>}
+            </article>
+          );
+        })}
       </div>
-    </div>
-  );
-}
-
-function FocusTimer(props: ProductivityHubProps) {
-  const [taskId, setTaskId] = useState<string>('');
-  const [remaining, setRemaining] = useState(props.settings.pomodoroMinutes * 60);
-  const [running, setRunning] = useState(false);
-  const startedAt = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = window.setInterval(() => setRemaining((value) => Math.max(0, value - 1)), 1_000);
-    return () => window.clearInterval(timer);
-  }, [running]);
-
-  useEffect(() => {
-    if (remaining !== 0 || !running || !startedAt.current) return;
-    setRunning(false);
-    void props.onAddFocusSession({
-      durationMinutes: props.settings.pomodoroMinutes,
-      endedAt: new Date().toISOString(),
-      mode: 'pomodoro',
-      startedAt: startedAt.current,
-      taskId: taskId || null,
-    });
-  }, [props, remaining, running, taskId]);
-
-  const reset = () => {
-    setRunning(false);
-    setRemaining(props.settings.pomodoroMinutes * 60);
-    startedAt.current = null;
-  };
-
-  return (
-    <div className="hub-panel focus-panel">
-      <div className="hub-heading">
-        <div>
-          <p>一次只做好一件事</p>
-          <h2>番茄专注</h2>
-        </div>
-      </div>
-      <div className="focus-clock">
-        <span>
-          {String(Math.floor(remaining / 60)).padStart(2, '0')}:
-          {String(remaining % 60).padStart(2, '0')}
-        </span>
-        <select
-          aria-label="关联任务"
-          disabled={running}
-          onChange={(event) => setTaskId(event.target.value)}
-          value={taskId}
-        >
-          <option value="">不关联任务</option>
-          {props.tasks
-            .filter((task) => !task.completedAt)
-            .map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.title}
-              </option>
-            ))}
-        </select>
-        <div>
-          <button
-            className="primary-button"
-            onClick={() => {
-              if (!startedAt.current) startedAt.current = new Date().toISOString();
-              setRunning((value) => !value);
-            }}
-            type="button"
-          >
-            {running ? <Pause size={17} /> : <Play size={17} />}
-            {running ? '暂停' : '开始'}
-          </button>
-          <button className="secondary-button" onClick={reset} type="button">
-            <RotateCcw size={16} />
-            重置
-          </button>
-        </div>
-      </div>
-      <p className="focus-summary">
-        累计完成 {props.focusSessions.length} 次专注, 共{' '}
-        {props.focusSessions.reduce((sum, item) => sum + item.durationMinutes, 0)} 分钟.
-      </p>
-    </div>
-  );
-}
-
-function HabitTracker(props: ProductivityHubProps) {
-  const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const days = Array.from({ length: 7 }, (_, index) => subDays(new Date(), 6 - index));
-  const createHabit = async () => {
-    const name = window.prompt('请输入习惯名称.');
-    if (name?.trim()) await props.onAddHabit(name.trim());
-  };
-  return (
-    <div className="hub-panel">
-      <div className="hub-heading">
-        <div>
-          <p>小步积累可见进步</p>
-          <h2>习惯打卡</h2>
-        </div>
-        <button className="secondary-button" onClick={() => void createHabit()} type="button">
-          <Plus size={15} />
-          新建习惯
-        </button>
-      </div>
-      <div className="habit-list">
-        {props.habits.map((habit) => (
-          <article key={habit.id}>
-            <header>
-              <i style={{ background: habit.color }} />
-              <strong>{habit.name}</strong>
-              <span>累计 {habit.logs.length} 天</span>
-              <button
-                aria-label={`删除习惯 ${habit.name}`}
-                onClick={() => void props.onDeleteHabit(habit.id)}
-                type="button"
-              >
-                <Trash2 size={14} />
-              </button>
-            </header>
-            <div>
-              {days.map((day) => {
-                const key = format(day, 'yyyy-MM-dd');
-                const done = habit.logs.includes(key);
-                return (
-                  <button
-                    aria-label={`${key}${done ? '已' : '未'}打卡`}
-                    className={done ? 'done' : ''}
-                    key={key}
-                    onClick={() => void props.onToggleHabit(habit.id, key)}
-                    type="button"
-                  >
-                    <small>{format(day, 'EEE')}</small>
-                    <span>{format(day, 'd')}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </article>
-        ))}
-        {props.habits.length === 0 && <EmptyText text="创建第一个习惯, 从今天开始打卡." />}
-      </div>
-      {props.habits.some((habit) => habit.logs.includes(todayKey)) && (
-        <p className="habit-cheer">今天已经开始积累了.</p>
-      )}
     </div>
   );
 }

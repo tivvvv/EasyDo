@@ -32,6 +32,7 @@ import {
   toggleHabitLog,
   updateCategory,
   updateFolder,
+  updateHabit,
   updateTag,
   updateSettings,
   updateTask,
@@ -444,5 +445,21 @@ describe('本地数据仓库', () => {
     expect(await emptyTrash(database)).toBe(1);
     expect(await database.tasks.get(first!.id)).toBeUndefined();
     expect(await database.tasks.get(second!.id)).toBeDefined();
+  });
+
+  it('更新习惯目标并规范化周期配置', async () => {
+    const habit = await addHabit('阅读', '#3fa27c', database);
+    await updateHabit(
+      habit.id,
+      { frequency: 'weekly', name: ' 每周阅读 ', target: 2.6, weekDays: [1, 3, 3, 8] },
+      database,
+    );
+
+    expect(await database.habits.get(habit.id)).toMatchObject({
+      frequency: 'weekly',
+      name: '每周阅读',
+      target: 3,
+      weekDays: [1, 3],
+    });
   });
 });

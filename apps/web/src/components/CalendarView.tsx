@@ -2,7 +2,17 @@ import type { AppSettings, Category, Task } from '@easydo/domain';
 import { taskHasConflict } from '@easydo/application';
 import { addDays, format, isSameDay, isSameMonth, isToday, startOfDay } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { CalendarDays, Check, CirclePlus, Clock3, GripVertical, Inbox } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  Check,
+  CirclePlus,
+  Clock3,
+  GripVertical,
+  Inbox,
+  Layers3,
+  Timer,
+} from 'lucide-react';
 import { useState } from 'react';
 
 import { getMonthDays, getWeekDays, minutesFromTime, toDateKey } from '../lib/calendar';
@@ -44,9 +54,63 @@ export function CalendarView(props: CalendarViewProps) {
 
   return (
     <>
+      <CalendarOverview categories={props.categories} onEdit={props.onEdit} tasks={props.tasks} />
       <PlanningTray onEdit={props.onEdit} tasks={props.tasks} />
       {calendar}
     </>
+  );
+}
+
+function CalendarOverview({
+  categories,
+  onEdit,
+  tasks,
+}: {
+  categories: Category[];
+  onEdit: (task: Task) => void;
+  tasks: Task[];
+}) {
+  const active = tasks.filter((task) => !task.completedAt);
+  const scheduled = active.filter((task) => task.dueDate);
+  const conflicts = scheduled.filter((task) => taskHasConflict(task, scheduled));
+  const minutes = scheduled.reduce((sum, task) => sum + (task.dueTime ? task.duration : 0), 0);
+  return (
+    <section className="calendar-overview" aria-label="日历负载概览">
+      <span>
+        <CalendarDays size={16} />
+        <strong>{scheduled.length}</strong>
+        已安排
+      </span>
+      <span>
+        <Timer size={16} />
+        <strong>{Math.round((minutes / 60) * 10) / 10}</strong>
+        计划小时
+      </span>
+      <button
+        className={conflicts.length ? 'warning' : ''}
+        disabled={!conflicts.length}
+        onClick={() => conflicts[0] && onEdit(conflicts[0])}
+        type="button"
+      >
+        <AlertTriangle size={16} />
+        <strong>{conflicts.length}</strong>
+        时间冲突
+      </button>
+      <span>
+        <Inbox size={16} />
+        <strong>{active.length - scheduled.length}</strong>
+        待安排
+      </span>
+      <div className="calendar-legend" aria-label="分类图例">
+        <Layers3 size={15} />
+        {categories.slice(0, 4).map((category) => (
+          <span key={category.id}>
+            <i style={{ background: category.color }} />
+            {category.name}
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -228,6 +292,10 @@ function MonthCalendar({
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') onSelectDate(day);
+                  if (event.key === 'ArrowLeft') onSelectDate(addDays(day, -1));
+                  if (event.key === 'ArrowRight') onSelectDate(addDays(day, 1));
+                  if (event.key === 'ArrowUp') onSelectDate(addDays(day, -7));
+                  if (event.key === 'ArrowDown') onSelectDate(addDays(day, 7));
                 }}
                 role="button"
                 tabIndex={0}
@@ -238,7 +306,7 @@ function MonthCalendar({
                 <span className="cell-tasks">
                   {dayTasks.slice(0, 4).map((task) => (
                     <button
-                      className={`calendar-task ${task.priority}${task.completedAt ? ' completed' : ''}`}
+                      className={`calendar-task ${task.priority}${task.completedAt ? ' completed' : ''}${taskHasConflict(task, tasks) ? ' conflict' : ''}${isTaskOverdue(task) ? ' overdue' : ''}`}
                       draggable
                       key={task.id}
                       onClick={(event) => {
@@ -641,6 +709,8 @@ function DayPanel({
   const categoryColors = new Map(categories.map((category) => [category.id, category.color]));
   const completed = tasks.filter((task) => task.completedAt).length;
   const progress = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+  const plannedMinutes = tasks.reduce((sum, task) => sum + (task.dueTime ? task.duration : 0), 0);
+  const conflicts = tasks.filter((task) => taskHasConflict(task, tasks)).length;
 
   return (
     <aside className="day-panel">
@@ -650,6 +720,16 @@ function DayPanel({
           <h2>{format(date, 'M 月 d 日', { locale: zhCN })}</h2>
         </div>
         <span>{tasks.length} 项</span>
+      </div>
+      <div className="day-metrics">
+        <span>
+          <Timer size={13} />
+          {plannedMinutes ? `${Math.round((plannedMinutes / 60) * 10) / 10} 小时` : '暂无定时任务'}
+        </span>
+        <span className={conflicts ? 'warning' : ''}>
+          <AlertTriangle size={13} />
+          {conflicts ? `${conflicts} 项冲突` : '无冲突'}
+        </span>
       </div>
       <div className="day-progress" title={`完成 ${progress}%`}>
         <span style={{ width: `${progress}%` }} />

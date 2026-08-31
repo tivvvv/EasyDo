@@ -7,6 +7,7 @@ import type {
   FocusSession,
   Folder,
   Habit,
+  HabitPatch,
   SavedFilter,
   Section,
   Tag,
@@ -852,6 +853,22 @@ export async function toggleHabitLog(
       ? habit.logs.filter((item) => item !== dateKey)
       : [...habit.logs, dateKey],
   });
+}
+
+export async function updateHabit(
+  id: string,
+  patch: HabitPatch,
+  database: EasyDoDatabase = db,
+): Promise<void> {
+  const normalized: HabitPatch = {
+    ...patch,
+    ...(patch.name === undefined ? {} : { name: patch.name.trim() }),
+    ...(patch.target === undefined ? {} : { target: Math.max(1, Math.round(patch.target)) }),
+    ...(patch.weekDays === undefined
+      ? {}
+      : { weekDays: [...new Set(patch.weekDays)].filter((day) => day >= 0 && day <= 6) }),
+  };
+  await database.habits.update(id, normalized);
 }
 
 export async function deleteHabit(id: string, database: EasyDoDatabase = db): Promise<void> {
