@@ -30,6 +30,25 @@ test('创建, 搜索并完成任务', async ({ page, isMobile }) => {
   await expect(page.getByText('端到端验收任务')).toHaveCount(0);
 });
 
+test('使用任务行菜单编辑和复制任务', async ({ page, isMobile }) => {
+  await page.goto('/');
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: /全部任务/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: '全部任务' })).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 2, name: '全部任务' })).toHaveCount(0);
+
+  const firstTask = page.locator('.task-row').first();
+  await firstTask.locator('.task-row-menu > summary').click();
+  await expect(firstTask.getByRole('menu')).toBeVisible();
+  await firstTask.getByRole('menuitem', { name: '创建副本' }).click();
+  await expect(page.getByText('任务副本已创建.')).toBeVisible();
+  await expect(page.locator('.task-row')).toHaveCount(4);
+
+  await firstTask.locator('.task-row-menu > summary').click();
+  await firstTask.getByRole('menuitem', { name: '编辑任务' }).click();
+  await expect(page.getByRole('dialog', { name: /编辑任务/ })).toBeVisible();
+});
+
 test('切换日历视图并创建分类和标签', async ({ page, isMobile }) => {
   await page.goto('/');
   if (isMobile) {

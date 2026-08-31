@@ -7,8 +7,12 @@ import {
   CirclePlus,
   Clock3,
   Copy,
+  Edit3,
+  GripVertical,
   Inbox,
+  MoreHorizontal,
   Repeat2,
+  Star,
   Trash2,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -75,9 +79,15 @@ export function TaskList({
   return (
     <section className="list-view">
       <div className="list-view-heading">
-        <div>
-          <p>任务</p>
-          <h2>{title}</h2>
+        <div className="list-summary" aria-label="任务概览">
+          <span>
+            <strong>{active.length}</strong>
+            <small>待完成</small>
+          </span>
+          <span>
+            <strong>{completed.length}</strong>
+            <small>已完成</small>
+          </span>
         </div>
         <div className="list-heading-actions">
           <select
@@ -112,14 +122,6 @@ export function TaskList({
             添加任务
           </button>
         </div>
-      </div>
-      <div className="list-summary">
-        <span>
-          <strong>{active.length}</strong> 待完成
-        </span>
-        <span>
-          <strong>{completed.length}</strong> 已完成
-        </span>
       </div>
       {visibleSelectedIds.length > 0 && (
         <div className="batch-toolbar" role="toolbar" aria-label="批量操作">
@@ -196,10 +198,12 @@ export function TaskList({
                 <TaskRow
                   category={categoryMap.get(task.categoryId)}
                   key={task.id}
+                  onDuplicate={onDuplicate}
                   onEdit={onEdit}
                   onReorder={onReorder}
                   onSelect={toggleSelected}
                   onToggle={onToggle}
+                  onTrash={onTrash}
                   selected={selectedIds.includes(task.id)}
                   tagMap={tagMap}
                   task={task}
@@ -214,10 +218,12 @@ export function TaskList({
                 <TaskRow
                   category={categoryMap.get(task.categoryId)}
                   key={task.id}
+                  onDuplicate={onDuplicate}
                   onEdit={onEdit}
                   onReorder={onReorder}
                   onSelect={toggleSelected}
                   onToggle={onToggle}
+                  onTrash={onTrash}
                   selected={selectedIds.includes(task.id)}
                   tagMap={tagMap}
                   task={task}
@@ -243,10 +249,12 @@ export function TaskList({
 
 type TaskRowProps = {
   category?: Category;
+  onDuplicate: (taskId: string) => Promise<void>;
   onEdit: (task: Task) => void;
   onReorder: (sourceId: string, targetId: string) => Promise<void>;
   onSelect: (taskId: string) => void;
   onToggle: (taskId: string) => Promise<void>;
+  onTrash: (taskId: string) => Promise<void>;
   selected: boolean;
   tagMap: Map<string, Tag>;
   task: Task;
@@ -254,10 +262,12 @@ type TaskRowProps = {
 
 function TaskRow({
   category,
+  onDuplicate,
   onEdit,
   onReorder,
   onSelect,
   onToggle,
+  onTrash,
   selected,
   tagMap,
   task,
@@ -274,6 +284,9 @@ function TaskRow({
         if (sourceId && sourceId !== task.id) void onReorder(sourceId, task.id);
       }}
     >
+      <span aria-hidden="true" className="task-drag-handle">
+        <GripVertical size={15} />
+      </span>
       <input
         aria-label={`选择 ${task.title}`}
         checked={selected}
@@ -290,7 +303,10 @@ function TaskRow({
         {task.completedAt && <Check size={13} />}
       </button>
       <button className="task-row-content" onClick={() => onEdit(task)} type="button">
-        <strong>{task.title}</strong>
+        <strong>
+          {task.important && <Star aria-label="重要任务" className="task-important" size={14} />}
+          <span>{task.title}</span>
+        </strong>
         <span className="task-meta">
           {task.dueDate && (
             <span>
@@ -333,8 +349,53 @@ function TaskRow({
         </span>
       </button>
       <span className={`row-priority ${task.priority}`} />
+      <details className="task-row-menu">
+        <summary aria-label={`打开 ${task.title} 的操作菜单`} title="更多操作">
+          <MoreHorizontal size={18} />
+        </summary>
+        <div className="task-row-menu-popover" role="menu">
+          <button
+            onClick={(event) => {
+              closeRowMenu(event.currentTarget);
+              onEdit(task);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <Edit3 size={15} />
+            编辑任务
+          </button>
+          <button
+            onClick={(event) => {
+              closeRowMenu(event.currentTarget);
+              void onDuplicate(task.id);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <Copy size={15} />
+            创建副本
+          </button>
+          <button
+            className="danger"
+            onClick={(event) => {
+              closeRowMenu(event.currentTarget);
+              if (window.confirm(`确定将 "${task.title}" 移到回收站吗?`)) void onTrash(task.id);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <Trash2 size={15} />
+            移到回收站
+          </button>
+        </div>
+      </details>
     </article>
   );
+}
+
+function closeRowMenu(button: HTMLButtonElement): void {
+  button.closest('details')?.removeAttribute('open');
 }
 
 const priorityOrder: Record<Priority, number> = { high: 0, medium: 1, low: 2, none: 3 };

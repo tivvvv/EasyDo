@@ -248,28 +248,30 @@ export function App() {
         />
       )}
       <aside className={`sidebar${mobileMenuOpen ? ' mobile-open' : ''}`}>
-        <div className="brand-row">
-          <span className="brand-mark">
-            <Check size={18} strokeWidth={3} />
-          </span>
-          <span>EasyDo</span>
+        <div className="sidebar-sticky-head">
+          <div className="brand-row">
+            <span className="brand-mark">
+              <Check size={18} strokeWidth={3} />
+            </span>
+            <span>EasyDo</span>
+            <button
+              aria-label="关闭导航"
+              className="mobile-close"
+              onClick={() => setMobileMenuOpen(false)}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          </div>
           <button
-            aria-label="关闭导航"
-            className="mobile-close"
-            onClick={() => setMobileMenuOpen(false)}
+            className="quick-add"
+            onClick={() => openNewTask(view.kind === 'calendar' ? toDateKey(selectedDate) : null)}
             type="button"
           >
-            <X size={18} />
+            <CirclePlus size={18} />
+            添加任务<kbd>N</kbd>
           </button>
         </div>
-        <button
-          className="quick-add"
-          onClick={() => openNewTask(view.kind === 'calendar' ? toDateKey(selectedDate) : null)}
-          type="button"
-        >
-          <CirclePlus size={18} />
-          添加任务<kbd>N</kbd>
-        </button>
         <nav className="nav-group" aria-label="主要视图">
           <NavButton
             active={view.kind === 'inbox'}
@@ -445,7 +447,7 @@ export function App() {
 
       <main className="workspace">
         <header className="topbar">
-          <div>
+          <div className="topbar-copy">
             <p className="eyebrow">
               {view.kind === 'calendar' ? '日历' : view.kind === 'productivity' ? '效率' : '任务'}
             </p>

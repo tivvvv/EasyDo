@@ -183,7 +183,13 @@ export function TaskDialog({
       className="dialog-backdrop"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
-      <section aria-labelledby={titleId} aria-modal="true" className="task-dialog" role="dialog">
+      <section
+        aria-label={task ? `编辑任务: ${task.title}` : undefined}
+        aria-labelledby={task ? undefined : titleId}
+        aria-modal="true"
+        className="task-dialog"
+        role="dialog"
+      >
         <header className="dialog-header">
           <div>
             <p>{task ? '编辑任务' : '新建任务'}</p>
