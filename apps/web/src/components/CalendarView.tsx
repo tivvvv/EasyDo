@@ -7,7 +7,8 @@ import { useState } from 'react';
 
 import { getMonthDays, getWeekDays, minutesFromTime, toDateKey } from '../lib/calendar';
 
-export type CalendarMode = 'month' | 'week' | 'fiveDay' | 'threeDay' | 'day' | 'agenda';
+export type CalendarMode =
+  'year' | 'month' | 'multiWeek' | 'week' | 'fiveDay' | 'threeDay' | 'day' | 'agenda';
 
 type CalendarViewProps = {
   categories: Category[];
@@ -28,15 +29,153 @@ type CalendarViewProps = {
 const weekNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 export function CalendarView(props: CalendarViewProps) {
-  if (props.mode === 'month') {
-    return <MonthCalendar {...props} />;
+  let calendar;
+  if (props.mode === 'year') {
+    calendar = <YearCalendar {...props} />;
+  } else if (props.mode === 'multiWeek') {
+    calendar = <MultiWeekCalendar {...props} />;
+  } else if (props.mode === 'month') {
+    calendar = <MonthCalendar {...props} />;
+  } else if (props.mode === 'agenda') {
+    calendar = <AgendaCalendar {...props} />;
+  } else {
+    calendar = <TimeCalendar {...props} />;
   }
 
-  if (props.mode === 'agenda') {
-    return <AgendaCalendar {...props} />;
-  }
+  return (
+    <>
+      <PlanningTray onEdit={props.onEdit} tasks={props.tasks} />
+      {calendar}
+    </>
+  );
+}
 
-  return <TimeCalendar {...props} />;
+function PlanningTray({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task[] }) {
+  const todayKey = toDateKey(new Date());
+  const planningTasks = tasks.filter(
+    (task) => !task.completedAt && (!task.dueDate || task.dueDate < todayKey),
+  );
+  if (planningTasks.length === 0) return null;
+  return (
+    <aside className="planning-tray">
+      <span>
+        <Inbox size={15} />
+        <strong>计划收件箱</strong>
+        <small>拖到日历完成安排</small>
+      </span>
+      <div>
+        {planningTasks.map((task) => (
+          <button
+            draggable
+            key={task.id}
+            onClick={() => onEdit(task)}
+            onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
+            type="button"
+          >
+            <GripVertical size={13} />
+            {task.title}
+            <small>{task.dueDate ? '已过期' : '未安排'}</small>
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function YearCalendar(props: CalendarViewProps) {
+  const months = Array.from(
+    { length: 12 },
+    (_, index) => new Date(props.currentDate.getFullYear(), index, 1, 12),
+  );
+
+  return (
+    <section className="year-calendar" aria-label={`${props.currentDate.getFullYear()} 年视图`}>
+      {months.map((month) => (
+        <article className="year-month" key={month.toISOString()}>
+          <h3>{format(month, 'M 月')}</h3>
+          <div className="year-weekdays">
+            {weekNames.map((name) => (
+              <span key={name}>{name.slice(1)}</span>
+            ))}
+          </div>
+          <div className="year-days">
+            {getMonthDays(month, 1).map((day) => {
+              const dateKey = toDateKey(day);
+              const dayTasks = props.tasks.filter((task) => isTaskOnDate(task, dateKey));
+              return (
+                <button
+                  className={`${isSameMonth(day, month) ? '' : 'outside'}${isToday(day) ? ' today' : ''}`}
+                  key={dateKey}
+                  onClick={() => props.onSelectDate(day)}
+                  onDoubleClick={() => props.onAdd(dateKey)}
+                  title={dayTasks.map((task) => task.title).join('\n')}
+                  type="button"
+                >
+                  <span>{format(day, 'd')}</span>
+                  {dayTasks.length > 0 && <i>{dayTasks.length}</i>}
+                </button>
+              );
+            })}
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function MultiWeekCalendar(props: CalendarViewProps) {
+  const firstDay = getWeekDays(props.currentDate, props.settings.weekStartsOn)[0]!;
+  const days = Array.from({ length: 28 }, (_, index) => addDays(firstDay, index)).filter((day) =>
+    propsShowDay(day, props.settings.showWeekends),
+  );
+  const categoryColors = new Map(props.categories.map((category) => [category.id, category.color]));
+
+  return (
+    <section className={`multi-week-calendar${props.settings.showWeekends ? '' : ' no-weekends'}`}>
+      <div className="weekday-row">
+        {(props.settings.showWeekends ? weekNames : weekNames.slice(0, 5)).map((name) => (
+          <span key={name}>{name}</span>
+        ))}
+      </div>
+      <div className="multi-week-grid">
+        {days.map((day) => {
+          const dateKey = toDateKey(day);
+          const dayTasks = props.tasks.filter((task) => isTaskOnDate(task, dateKey));
+          return (
+            <div
+              className={`day-cell${isToday(day) ? ' today' : ''}`}
+              key={dateKey}
+              onDoubleClick={() => props.onAdd(dateKey)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                const taskId = event.dataTransfer.getData('text/task-id');
+                if (taskId) void props.onMove(taskId, dateKey);
+              }}
+            >
+              <button onClick={() => props.onSelectDate(day)} type="button">
+                <small>{format(day, 'M 月')}</small>
+                {format(day, 'd')}
+              </button>
+              {dayTasks.slice(0, 5).map((task) => (
+                <button
+                  className={`calendar-task ${task.priority}`}
+                  draggable
+                  key={task.id}
+                  onClick={() => props.onQuickEdit(task)}
+                  onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
+                  type="button"
+                >
+                  <i style={{ background: categoryColors.get(task.categoryId) }} />
+                  <span>{task.title}</span>
+                </button>
+              ))}
+              {dayTasks.length > 5 && <small>还有 {dayTasks.length - 5} 项</small>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function MonthCalendar({
@@ -183,32 +322,8 @@ function TimeCalendar({
     startTime: string;
   } | null>(null);
 
-  const unscheduled = tasks.filter((task) => !task.dueDate && !task.completedAt);
-
   return (
     <section className={`time-calendar ${mode} ${settings.calendarDensity}`}>
-      {unscheduled.length > 0 && (
-        <div className="unscheduled-tray">
-          <span>
-            <Inbox size={15} />
-            待安排
-          </span>
-          <div>
-            {unscheduled.map((task) => (
-              <button
-                draggable
-                key={task.id}
-                onClick={() => onEdit(task)}
-                onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
-                type="button"
-              >
-                <GripVertical size={13} />
-                {task.title}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="time-calendar-header">
         <span />
         {days.map((day) => (

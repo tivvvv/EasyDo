@@ -11,6 +11,7 @@ import {
 
 function task(patch: Partial<Task>): Task {
   return {
+    attachments: [],
     allDay: true,
     categoryId: 'category-work',
     completedAt: null,
@@ -22,6 +23,7 @@ function task(patch: Partial<Task>): Task {
     endDate: null,
     endTime: null,
     id: crypto.randomUUID(),
+    important: false,
     kind: 'task',
     notes: '',
     order: 0,
@@ -31,6 +33,7 @@ function task(patch: Partial<Task>): Task {
     reminderMinutes: null,
     reminders: [],
     seriesId: null,
+    sectionId: null,
     subtasks: [],
     tagIds: [],
     timeZone: getLocalTimeZone(),
@@ -85,7 +88,31 @@ describe('任务领域规则', () => {
   });
 
   it('严格验证备份中的任务, 分类和标签', () => {
-    const backupTask = task({ id: 'task-1' });
+    const backupTask = task({
+      attachments: [
+        {
+          createdAt: '2026-08-31T00:00:00.000Z',
+          dataUrl: 'data:text/plain;base64,QQ==',
+          id: 'attachment-1',
+          mimeType: 'text/plain',
+          name: '说明.txt',
+          size: 1,
+        },
+      ],
+      id: 'task-1',
+      recurrence: {
+        basis: 'completion',
+        completedCount: 1,
+        endAfterOccurrences: 5,
+        endsOn: '2026-12-31',
+        excludedDates: ['2026-09-01'],
+        frequency: 'monthly',
+        interval: 1,
+        monthMode: 'weekDay',
+        monthWeek: { week: -1, weekDay: 5 },
+        weekDays: [5],
+      },
+    });
     const value = {
       activities: [
         {
@@ -108,6 +135,16 @@ describe('任务领域规则', () => {
           order: 0,
         },
       ],
+      countdowns: [
+        {
+          color: '#d65f78',
+          createdAt: '2026-08-31T00:00:00.000Z',
+          date: '2026-09-30',
+          id: 'countdown-1',
+          repeatYearly: false,
+          title: '发布',
+        },
+      ],
       exportedAt: '2026-08-31T00:00:00.000Z',
       filters: [
         {
@@ -124,7 +161,40 @@ describe('任务领域规则', () => {
           name: '近期',
         },
       ],
-      folders: [],
+      focusSessions: [
+        {
+          createdAt: '2026-08-31T00:00:00.000Z',
+          durationMinutes: 25,
+          endedAt: '2026-08-31T00:25:00.000Z',
+          id: 'focus-1',
+          mode: 'pomodoro',
+          startedAt: '2026-08-31T00:00:00.000Z',
+          taskId: 'task-1',
+        },
+      ],
+      folders: [{ createdAt: '2026-08-31T00:00:00.000Z', id: 'folder-1', name: '项目', order: 0 }],
+      habits: [
+        {
+          archivedAt: null,
+          color: '#3fa27c',
+          createdAt: '2026-08-31T00:00:00.000Z',
+          frequency: 'daily',
+          id: 'habit-1',
+          logs: ['2026-08-31'],
+          name: '阅读',
+          target: 1,
+          weekDays: [],
+        },
+      ],
+      sections: [
+        {
+          categoryId: 'category-1',
+          createdAt: '2026-08-31T00:00:00.000Z',
+          id: 'section-1',
+          name: '进行中',
+          order: 0,
+        },
+      ],
       settings: { ...defaultAppSettings },
       tags: [
         {
@@ -143,7 +213,7 @@ describe('任务领域规则', () => {
           name: '模板',
         },
       ],
-      version: 3,
+      version: 4,
     };
 
     expect(isBackupPayload(value)).toBe(true);
@@ -156,6 +226,11 @@ describe('任务领域规则', () => {
     expect(isBackupPayload({ ...value, templates: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, filters: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, activities: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, countdowns: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, focusSessions: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, folders: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, habits: [{ id: 'broken' }] })).toBe(false);
+    expect(isBackupPayload({ ...value, sections: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, settings: { ...value.settings, workdayEnd: 5 } })).toBe(
       false,
     );

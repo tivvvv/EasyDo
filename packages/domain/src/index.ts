@@ -13,13 +13,15 @@ export type Reminder = {
 export type RecurrenceFrequency = 'daily' | 'monthly' | 'weekdays' | 'weekly' | 'yearly';
 
 export type RecurrenceRule = {
+  basis: 'completion' | 'scheduled';
   completedCount: number;
   endAfterOccurrences: number | null;
   endsOn: string | null;
   excludedDates: string[];
   frequency: RecurrenceFrequency;
   interval: number;
-  monthMode: 'date' | 'lastDay';
+  monthMode: 'date' | 'lastDay' | 'weekDay';
+  monthWeek: { week: number; weekDay: number } | null;
   weekDays: number[];
 };
 
@@ -42,11 +44,15 @@ export type CalendarDensity = 'comfortable' | 'compact';
 export type AppSettings = {
   agendaDays: 7 | 14 | 30;
   calendarDensity: CalendarDensity;
-  defaultCalendarMode: 'agenda' | 'day' | 'fiveDay' | 'month' | 'threeDay' | 'week';
+  defaultCalendarMode:
+    'agenda' | 'day' | 'fiveDay' | 'month' | 'multiWeek' | 'threeDay' | 'week' | 'year';
   id: 'default';
   showWeekends: boolean;
+  shortBreakMinutes: number;
   taskGrouping: 'category' | 'date' | 'none' | 'priority';
   taskSort: 'created' | 'date' | 'manual' | 'priority' | 'updated';
+  theme: 'dark' | 'light' | 'system';
+  pomodoroMinutes: number;
   weekStartsOn: 0 | 1;
   workdayEnd: number;
   workdayStart: number;
@@ -69,6 +75,7 @@ export type SavedFilter = {
 };
 
 export type Task = {
+  attachments: Attachment[];
   allDay: boolean;
   categoryId: string;
   completedAt: string | null;
@@ -80,6 +87,7 @@ export type Task = {
   endDate: string | null;
   endTime: string | null;
   id: string;
+  important: boolean;
   kind: TaskKind;
   notes: string;
   parentId: string | null;
@@ -89,11 +97,60 @@ export type Task = {
   reminders: Reminder[];
   order: number;
   seriesId: string | null;
+  sectionId: string | null;
   subtasks: Subtask[];
   tagIds: string[];
   timeZone: string;
   title: string;
   updatedAt: string;
+};
+
+export type Attachment = {
+  createdAt: string;
+  dataUrl: string;
+  id: string;
+  mimeType: string;
+  name: string;
+  size: number;
+};
+
+export type Section = {
+  categoryId: string;
+  createdAt: string;
+  id: string;
+  name: string;
+  order: number;
+};
+
+export type Habit = {
+  archivedAt: string | null;
+  color: string;
+  createdAt: string;
+  frequency: 'daily' | 'weekly';
+  id: string;
+  logs: string[];
+  name: string;
+  target: number;
+  weekDays: number[];
+};
+
+export type FocusSession = {
+  createdAt: string;
+  durationMinutes: number;
+  endedAt: string;
+  id: string;
+  mode: 'pomodoro' | 'stopwatch';
+  startedAt: string;
+  taskId: string | null;
+};
+
+export type Countdown = {
+  color: string;
+  createdAt: string;
+  date: string;
+  id: string;
+  repeatYearly: boolean;
+  title: string;
 };
 
 export type TaskTemplate = {
@@ -141,12 +198,14 @@ export type Tag = {
 export type TaskDraft = Pick<
   Task,
   | 'categoryId'
+  | 'attachments'
   | 'allDay'
   | 'dueDate'
   | 'dueTime'
   | 'duration'
   | 'endDate'
   | 'endTime'
+  | 'important'
   | 'kind'
   | 'notes'
   | 'parentId'
@@ -154,6 +213,7 @@ export type TaskDraft = Pick<
   | 'recurrence'
   | 'reminderMinutes'
   | 'reminders'
+  | 'sectionId'
   | 'subtasks'
   | 'tagIds'
   | 'timeZone'
@@ -165,14 +225,18 @@ export type TaskPatch = Partial<TaskDraft>;
 export type BackupPayload = {
   activities: ActivityRecord[];
   categories: Category[];
+  countdowns: Countdown[];
   exportedAt: string;
   filters: SavedFilter[];
+  focusSessions: FocusSession[];
   folders: Folder[];
+  habits: Habit[];
   settings: AppSettings;
+  sections: Section[];
   tags: Tag[];
   templates: TaskTemplate[];
   tasks: Task[];
-  version: 3;
+  version: 4;
 };
 
 export const defaultFilterCriteria: FilterCriteria = {
@@ -190,8 +254,11 @@ export const defaultAppSettings: AppSettings = {
   defaultCalendarMode: 'month',
   id: 'default',
   showWeekends: true,
+  shortBreakMinutes: 5,
   taskGrouping: 'none',
   taskSort: 'manual',
+  theme: 'system',
+  pomodoroMinutes: 25,
   weekStartsOn: 1,
   workdayEnd: 22,
   workdayStart: 7,
@@ -233,6 +300,7 @@ export function createSubtask(title = ''): Subtask {
 
 export function createRecurrenceRule(frequency: RecurrenceFrequency): RecurrenceRule {
   return {
+    basis: 'scheduled',
     completedCount: 0,
     endAfterOccurrences: null,
     endsOn: null,
@@ -240,6 +308,7 @@ export function createRecurrenceRule(frequency: RecurrenceFrequency): Recurrence
     frequency,
     interval: 1,
     monthMode: 'date',
+    monthWeek: null,
     weekDays: [],
   };
 }
@@ -258,12 +327,17 @@ const priorityWeight: Record<Priority, number> = {
 export function createId(
   prefix:
     | 'activity'
+    | 'attachment'
     | 'category'
     | 'filter'
+    | 'countdown'
+    | 'focus'
     | 'folder'
+    | 'habit'
     | 'group'
     | 'reminder'
     | 'series'
+    | 'section'
     | 'subtask'
     | 'tag'
     | 'task'
@@ -315,7 +389,7 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
 
   const candidate = value as Partial<BackupPayload>;
   return (
-    candidate.version === 3 &&
+    candidate.version === 4 &&
     Array.isArray(candidate.tasks) &&
     candidate.tasks.every(isTaskRecord) &&
     Array.isArray(candidate.categories) &&
@@ -328,6 +402,14 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
     candidate.filters.every(isSavedFilterRecord) &&
     Array.isArray(candidate.folders) &&
     candidate.folders.every(isFolderRecord) &&
+    Array.isArray(candidate.sections) &&
+    candidate.sections.every(isSectionRecord) &&
+    Array.isArray(candidate.habits) &&
+    candidate.habits.every(isHabitRecord) &&
+    Array.isArray(candidate.focusSessions) &&
+    candidate.focusSessions.every(isFocusSessionRecord) &&
+    Array.isArray(candidate.countdowns) &&
+    candidate.countdowns.every(isCountdownRecord) &&
     Array.isArray(candidate.activities) &&
     candidate.activities.every(isActivityRecord) &&
     isSettingsRecord(candidate.settings) &&
@@ -355,6 +437,9 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
   const task = value as Partial<TaskDraft>;
   return (
     typeof task.title === 'string' &&
+    typeof task.important === 'boolean' &&
+    Array.isArray(task.attachments) &&
+    task.attachments.every(isAttachmentRecord) &&
     typeof task.allDay === 'boolean' &&
     typeof task.categoryId === 'string' &&
     Number.isFinite(task.duration) &&
@@ -366,6 +451,7 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
     ['event', 'note', 'task'].includes(task.kind ?? '') &&
     typeof task.notes === 'string' &&
     isNullableString(task.parentId) &&
+    isNullableString(task.sectionId) &&
     priorities.some((priority) => priority === task.priority) &&
     isRecurrenceRecord(task.recurrence) &&
     (task.reminderMinutes === null || Number.isFinite(task.reminderMinutes)) &&
@@ -406,6 +492,7 @@ function isRecurrenceRecord(value: unknown): value is RecurrenceRule | null {
   if (!value || typeof value !== 'object') return false;
   const rule = value as Partial<RecurrenceRule>;
   return (
+    ['completion', 'scheduled'].includes(rule.basis ?? '') &&
     Number.isInteger(rule.completedCount) &&
     Number(rule.completedCount) >= 0 &&
     (rule.endAfterOccurrences === null ||
@@ -416,9 +503,30 @@ function isRecurrenceRecord(value: unknown): value is RecurrenceRule | null {
     isNullableString(rule.endsOn) &&
     Array.isArray(rule.excludedDates) &&
     rule.excludedDates.every((date) => typeof date === 'string') &&
-    ['date', 'lastDay'].includes(rule.monthMode ?? '') &&
+    ['date', 'lastDay', 'weekDay'].includes(rule.monthMode ?? '') &&
+    (rule.monthWeek === null ||
+      (typeof rule.monthWeek === 'object' &&
+        Number.isInteger(rule.monthWeek?.week) &&
+        (Number(rule.monthWeek?.week) === -1 || Number(rule.monthWeek?.week) >= 1) &&
+        Number(rule.monthWeek?.week) <= 5 &&
+        Number.isInteger(rule.monthWeek?.weekDay) &&
+        Number(rule.monthWeek?.weekDay) >= 0 &&
+        Number(rule.monthWeek?.weekDay) <= 6)) &&
     Array.isArray(rule.weekDays) &&
     rule.weekDays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+  );
+}
+
+function isAttachmentRecord(value: unknown): value is Attachment {
+  if (!value || typeof value !== 'object') return false;
+  const attachment = value as Partial<Attachment>;
+  return (
+    typeof attachment.id === 'string' &&
+    typeof attachment.name === 'string' &&
+    typeof attachment.mimeType === 'string' &&
+    typeof attachment.dataUrl === 'string' &&
+    Number.isFinite(attachment.size) &&
+    typeof attachment.createdAt === 'string'
   );
 }
 
@@ -443,6 +551,61 @@ function isFolderRecord(value: unknown): value is Folder {
     typeof folder.name === 'string' &&
     Number.isFinite(folder.order) &&
     typeof folder.createdAt === 'string'
+  );
+}
+
+function isSectionRecord(value: unknown): value is Section {
+  if (!value || typeof value !== 'object') return false;
+  const section = value as Partial<Section>;
+  return (
+    typeof section.id === 'string' &&
+    typeof section.categoryId === 'string' &&
+    typeof section.name === 'string' &&
+    Number.isFinite(section.order) &&
+    typeof section.createdAt === 'string'
+  );
+}
+
+function isHabitRecord(value: unknown): value is Habit {
+  if (!value || typeof value !== 'object') return false;
+  const habit = value as Partial<Habit>;
+  return (
+    typeof habit.id === 'string' &&
+    typeof habit.name === 'string' &&
+    typeof habit.color === 'string' &&
+    ['daily', 'weekly'].includes(habit.frequency ?? '') &&
+    Number.isInteger(habit.target) &&
+    Array.isArray(habit.weekDays) &&
+    Array.isArray(habit.logs) &&
+    isNullableString(habit.archivedAt) &&
+    typeof habit.createdAt === 'string'
+  );
+}
+
+function isFocusSessionRecord(value: unknown): value is FocusSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<FocusSession>;
+  return (
+    typeof session.id === 'string' &&
+    isNullableString(session.taskId) &&
+    ['pomodoro', 'stopwatch'].includes(session.mode ?? '') &&
+    Number.isFinite(session.durationMinutes) &&
+    typeof session.startedAt === 'string' &&
+    typeof session.endedAt === 'string' &&
+    typeof session.createdAt === 'string'
+  );
+}
+
+function isCountdownRecord(value: unknown): value is Countdown {
+  if (!value || typeof value !== 'object') return false;
+  const countdown = value as Partial<Countdown>;
+  return (
+    typeof countdown.id === 'string' &&
+    typeof countdown.title === 'string' &&
+    typeof countdown.date === 'string' &&
+    typeof countdown.color === 'string' &&
+    typeof countdown.repeatYearly === 'boolean' &&
+    typeof countdown.createdAt === 'string'
   );
 }
 
@@ -518,12 +681,17 @@ function isSettingsRecord(value: unknown): value is AppSettings {
     settings.id === 'default' &&
     [7, 14, 30].includes(settings.agendaDays ?? 0) &&
     ['comfortable', 'compact'].includes(settings.calendarDensity ?? '') &&
-    ['agenda', 'day', 'fiveDay', 'month', 'threeDay', 'week'].includes(
+    ['agenda', 'day', 'fiveDay', 'month', 'multiWeek', 'threeDay', 'week', 'year'].includes(
       settings.defaultCalendarMode ?? '',
     ) &&
     typeof settings.showWeekends === 'boolean' &&
+    Number.isInteger(settings.shortBreakMinutes) &&
+    Number(settings.shortBreakMinutes) > 0 &&
     ['category', 'date', 'none', 'priority'].includes(settings.taskGrouping ?? '') &&
     ['created', 'date', 'manual', 'priority', 'updated'].includes(settings.taskSort ?? '') &&
+    ['dark', 'light', 'system'].includes(settings.theme ?? '') &&
+    Number.isInteger(settings.pomodoroMinutes) &&
+    Number(settings.pomodoroMinutes) > 0 &&
     [0, 1].includes(settings.weekStartsOn ?? -1) &&
     Number.isInteger(settings.workdayStart) &&
     Number.isInteger(settings.workdayEnd) &&

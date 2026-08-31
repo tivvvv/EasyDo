@@ -32,6 +32,7 @@ describe('任务编辑对话框', () => {
         onSave={onSave}
         onSaveTemplate={async () => undefined}
         open
+        sections={[]}
         tags={tags}
         task={null}
         templates={[]}
@@ -71,6 +72,7 @@ describe('任务编辑对话框', () => {
         onSave={onSave}
         onSaveTemplate={async () => undefined}
         open
+        sections={[]}
         tags={tags}
         task={null}
         templates={[]}
@@ -90,6 +92,64 @@ describe('任务编辑对话框', () => {
         recurrence: expect.objectContaining({ frequency: 'daily' }),
         reminderMinutes: 10,
         subtasks: [expect.objectContaining({ title: '记录成果' })],
+      }),
+      undefined,
+      undefined,
+    );
+  });
+
+  it('保存分区, 附件, 重要标记和进阶月重复', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TaskDialog
+        categories={categories}
+        defaultDate="2026-08-31"
+        onClose={() => undefined}
+        onDelete={async () => undefined}
+        onSave={onSave}
+        onSaveTemplate={async () => undefined}
+        open
+        sections={[
+          {
+            categoryId: 'category-work',
+            createdAt: '2026-08-30T00:00:00.000Z',
+            id: 'section-review',
+            name: '待评审',
+            order: 0,
+          },
+        ]}
+        tags={tags}
+        task={null}
+        templates={[]}
+      />,
+    );
+
+    await user.type(screen.getByLabelText('任务标题'), '月度材料');
+    await user.selectOptions(screen.getByLabelText('分区'), 'section-review');
+    await user.click(screen.getByLabelText('标记为重要任务'));
+    await user.selectOptions(screen.getByLabelText(/重复/), 'monthly');
+    await user.selectOptions(screen.getByLabelText('重复基准'), 'completion');
+    await user.selectOptions(screen.getByLabelText('每月规则'), 'weekDay');
+    await user.selectOptions(screen.getByLabelText('月内周次'), '-1');
+    await user.selectOptions(screen.getByLabelText('月内星期'), '5');
+    await user.upload(
+      screen.getByLabelText('添加附件'),
+      new File(['hello'], '说明.txt', { type: 'text/plain' }),
+    );
+    await screen.findByRole('link', { name: '说明.txt' });
+    await user.click(screen.getByRole('button', { name: '创建任务' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [expect.objectContaining({ name: '说明.txt', size: 5 })],
+        important: true,
+        recurrence: expect.objectContaining({
+          basis: 'completion',
+          monthMode: 'weekDay',
+          monthWeek: { week: -1, weekDay: 5 },
+        }),
+        sectionId: 'section-review',
       }),
       undefined,
       undefined,

@@ -3,23 +3,30 @@ import {
   createRecurrenceRule,
   createReminder,
   createSubtask,
+  defaultAppSettings,
+  defaultFilterCriteria,
   getLocalTimeZone,
 } from '@easydo/domain';
 import {
   getPendingReminders,
   getPendingReminderEvents,
+  exportTasksToIcs,
+  formatTaskTimeInZone,
   matchesFilter,
   nextRecurrenceDate,
   parseBackup,
+  parseIcs,
   parseQuickTask,
   taskHasConflict,
   TaskApplicationService,
+  zonedDateTimeToDate,
   type ActivityRepository,
   type TaskRepository,
 } from '@easydo/application';
 import type { ActivityRecord } from '@easydo/domain';
 
 const draft: TaskDraft = {
+  attachments: [],
   allDay: false,
   categoryId: 'category-work',
   dueDate: '2026-08-31',
@@ -27,6 +34,7 @@ const draft: TaskDraft = {
   duration: 30,
   endDate: null,
   endTime: '09:30',
+  important: false,
   kind: 'task',
   notes: '',
   parentId: null,
@@ -34,6 +42,7 @@ const draft: TaskDraft = {
   recurrence: null,
   reminderMinutes: 10,
   reminders: [createReminder(10)],
+  sectionId: null,
   subtasks: [],
   tagIds: [],
   timeZone: getLocalTimeZone(),
@@ -215,6 +224,21 @@ describe('任务应用服务', () => {
     });
   });
 
+  it('支持按实际完成日期安排下一次重复任务', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-10T12:00:00+08:00'));
+    const repository = new MemoryRepository();
+    const service = new TaskApplicationService(repository);
+    const created = await service.create({
+      ...draft,
+      dueDate: '2026-08-31',
+      recurrence: { ...createRecurrenceRule('daily'), basis: 'completion', interval: 2 },
+    });
+    await service.complete(created.id);
+    expect(repository.tasks.get(created.id)?.dueDate).toBe('2026-09-12');
+    vi.useRealTimers();
+  });
+
   it('复制任务时重置子任务状态和标识', async () => {
     const repository = new MemoryRepository();
     const activities = new MemoryActivities();
@@ -332,6 +356,95 @@ describe('重复日期和提醒规则', () => {
     ).toBeNull();
   });
 
+  it('支持每月指定周次和星期重复', () => {
+    expect(
+      nextRecurrenceDate('2026-08-10', {
+        ...createRecurrenceRule('monthly'),
+        monthMode: 'weekDay',
+        monthWeek: { week: 2, weekDay: 1 },
+      }),
+    ).toBe('2026-09-14');
+    expect(
+      nextRecurrenceDate('2026-08-31', {
+        ...createRecurrenceRule('monthly'),
+        monthMode: 'weekDay',
+        monthWeek: { week: -1, weekDay: 5 },
+      }),
+    ).toBe('2026-09-25');
+  });
+
+  it('按任务时区计算提醒并正确跨越夏令时', () => {
+    expect(zonedDateTimeToDate('2026-03-08', '01:30', 'America/New_York').toISOString()).toBe(
+      '2026-03-08T06:30:00.000Z',
+    );
+    expect(zonedDateTimeToDate('2026-03-08', '03:30', 'America/New_York').toISOString()).toBe(
+      '2026-03-08T07:30:00.000Z',
+    );
+    const task: Task = {
+      ...draft,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      id: 'task-zone',
+      order: 0,
+      seriesId: null,
+      timeZone: 'Asia/Shanghai',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    expect(formatTaskTimeInZone(task, 'Europe/London')).toMatch(/02:00|01:00/);
+  });
+
+  it('完整导出并导入标准 ICS 日历条目', () => {
+    const task: Task = {
+      ...draft,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      id: 'task-ics',
+      important: true,
+      notes: '第一行\n第二行',
+      order: 0,
+      recurrence: { ...createRecurrenceRule('weekly'), weekDays: [1, 3] },
+      seriesId: 'series-ics',
+      title: '跨应用日程, 评审',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    const calendar = exportTasksToIcs([task]);
+    expect(calendar).toContain('BEGIN:VCALENDAR');
+    expect(calendar).toContain('RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE');
+    expect(parseIcs(calendar, 'fallback')).toEqual([
+      expect.objectContaining({
+        categoryId: 'category-work',
+        dueDate: '2026-08-31',
+        dueTime: '09:00',
+        important: true,
+        notes: '第一行\n第二行',
+        title: '跨应用日程, 评审',
+      }),
+    ]);
+  });
+
+  it('使用 ICS 规范的独占结束日期并兼容无效时区', () => {
+    const allDayTask: Task = {
+      ...draft,
+      allDay: true,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      dueTime: null,
+      endDate: '2026-09-02',
+      endTime: null,
+      id: 'task-all-day',
+      order: 0,
+      seriesId: null,
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    const calendar = exportTasksToIcs([allDayTask]);
+    expect(calendar).toContain('DTEND;VALUE=DATE:20260903');
+    expect(parseIcs(calendar, 'fallback')[0]?.endDate).toBe('2026-09-02');
+    expect(zonedDateTimeToDate('2026-08-31', '09:00', 'Invalid/Zone')).toBeInstanceOf(Date);
+  });
+
   it('只返回提醒窗口内且尚未通知的任务', () => {
     const task: Task = {
       ...draft,
@@ -420,7 +533,7 @@ describe('重复日期和提醒规则', () => {
           version: 1,
         }),
       ),
-    ).toMatchObject({ version: 3 });
+    ).toMatchObject({ version: 4 });
     expect(() => parseBackup('{"version":2}')).toThrow('备份文件格式不正确.');
     expect(() =>
       parseBackup(
@@ -476,6 +589,44 @@ describe('重复日期和提醒规则', () => {
       endTime: '09:30',
       kind: 'task',
       reminders: [expect.objectContaining({ offsetMinutes: 10 })],
+    });
+    const legacyTask = migrated.tasks[0]!;
+    const migratedV3 = parseBackup(
+      JSON.stringify({
+        activities: [
+          {
+            action: 'update',
+            after: legacyTask,
+            before: legacyTask,
+            createdAt: legacyTask.createdAt,
+            groupId: 'group-old',
+            id: 'activity-old',
+            taskId: legacyTask.id,
+          },
+        ],
+        categories: migrated.categories,
+        exportedAt: '2026-08-31',
+        filters: [
+          {
+            createdAt: legacyTask.createdAt,
+            criteria: { ...defaultFilterCriteria },
+            id: 'filter-old',
+            name: '旧筛选',
+          },
+        ],
+        folders: [],
+        settings: { ...defaultAppSettings },
+        tags: [],
+        tasks: [legacyTask],
+        templates: [{ createdAt: legacyTask.createdAt, draft, id: 'template-old', name: '旧模板' }],
+        version: 3,
+      }),
+    );
+    expect(migratedV3).toMatchObject({
+      activities: [{ id: 'activity-old' }],
+      filters: [{ id: 'filter-old' }],
+      templates: [{ id: 'template-old' }],
+      version: 4,
     });
   });
 });

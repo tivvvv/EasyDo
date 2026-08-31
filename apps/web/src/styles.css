@@ -196,6 +196,10 @@ kbd {
   gap: 24px;
   margin-bottom: 24px;
 }
+.topbar > div:first-child {
+  min-width: 180px;
+  flex: 0 0 auto;
+}
 .eyebrow {
   margin: 0 0 3px;
   color: #999ca7;
@@ -211,7 +215,11 @@ kbd {
 }
 .topbar-actions {
   display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 .search-box {
@@ -2540,13 +2548,775 @@ kbd {
   z-index: 6;
 }
 
+.year-calendar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  gap: 14px;
+  padding: 0 28px 30px;
+}
+.year-month,
+.hub-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.year-month {
+  padding: 14px;
+}
+.year-month h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.year-weekdays,
+.year-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.year-weekdays span {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+.year-days button {
+  position: relative;
+  display: grid;
+  min-height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+}
+.year-days button:hover {
+  background: var(--primary-soft);
+}
+.year-days button.outside {
+  opacity: 0.25;
+}
+.year-days button.today {
+  color: #fff;
+  background: var(--primary);
+}
+.year-days button i {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font: 700 8px/12px inherit;
+}
+.multi-week-calendar {
+  margin: 0 28px 30px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.planning-tray {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 0 28px 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+.planning-tray > span {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-size: 12px;
+}
+.planning-tray > span small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.planning-tray > div {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+}
+.planning-tray > div button {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  cursor: grab;
+  font-size: 11px;
+}
+.planning-tray button small {
+  color: var(--danger);
+}
+.multi-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.multi-week-calendar.no-weekends .multi-week-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.multi-week-grid .day-cell {
+  min-height: 150px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.multi-week-grid .day-cell > button:first-child {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.productivity-hub {
+  padding: 0 28px 34px;
+}
+.hub-tabs {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-x: auto;
+  background: var(--surface);
+}
+.hub-tabs button {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+.hub-tabs button.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 650;
+}
+.hub-panel {
+  min-height: 420px;
+  padding: 22px;
+}
+.hub-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+.hub-heading p {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.hub-heading h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.hub-actions {
+  display: flex;
+  gap: 8px;
+}
+.hub-actions select,
+.focus-clock select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.kanban-board {
+  display: grid;
+  grid-auto-columns: minmax(220px, 1fr);
+  grid-auto-flow: column;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.kanban-column {
+  min-height: 300px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+.kanban-column > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.kanban-column > header span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+}
+.kanban-column > header button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+.kanban-column > div {
+  display: grid;
+  gap: 8px;
+}
+.kanban-card {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  gap: 5px 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  text-align: left;
+  background: var(--surface);
+  box-shadow: 0 3px 10px rgba(30, 33, 44, 0.04);
+  cursor: grab;
+}
+.kanban-card strong {
+  font-size: 13px;
+}
+.kanban-card small {
+  grid-column: 2;
+  color: var(--muted);
+}
+.priority-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #a0a3ad;
+}
+.priority-dot.high {
+  background: #df536d;
+}
+.priority-dot.medium {
+  background: #e59a45;
+}
+.priority-dot.low {
+  background: #4c9ae8;
+}
+.column-empty,
+.hub-empty {
+  padding: 28px 12px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 7px;
+}
+.timeline-list > button {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 9px;
+  text-align: left;
+  background: var(--surface-strong);
+  cursor: pointer;
+  overflow: hidden;
+}
+.timeline-list button > span {
+  display: grid;
+  font-size: 13px;
+}
+.timeline-list button small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.timeline-bar {
+  display: block;
+  height: 16px;
+  border-radius: 5px;
+  background: #9094a1;
+}
+.timeline-bar.high {
+  background: #df536d;
+}
+.timeline-bar.medium {
+  background: #e59a45;
+}
+.timeline-bar.low {
+  background: #4c9ae8;
+}
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.matrix-grid article {
+  min-height: 190px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+.matrix-grid article:nth-child(1) {
+  border-top: 3px solid #df536d;
+}
+.matrix-grid article:nth-child(2) {
+  border-top: 3px solid #e59a45;
+}
+.matrix-grid article:nth-child(3) {
+  border-top: 3px solid #4c9ae8;
+}
+.matrix-grid article:nth-child(4) {
+  border-top: 3px solid #9094a1;
+}
+.matrix-grid header {
+  margin-bottom: 10px;
+}
+.matrix-grid article > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+  background: var(--surface);
+  cursor: grab;
+}
+
+.focus-panel {
+  text-align: center;
+}
+.focus-panel .hub-heading {
+  text-align: left;
+}
+.focus-clock {
+  display: grid;
+  max-width: 400px;
+  gap: 18px;
+  margin: 25px auto;
+}
+.focus-clock > span {
+  color: var(--primary);
+  font-size: clamp(56px, 10vw, 92px);
+  font-weight: 750;
+  letter-spacing: -0.06em;
+}
+.focus-clock > div {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+}
+.focus-summary {
+  color: var(--muted);
+}
+
+.habit-list {
+  display: grid;
+  gap: 10px;
+}
+.habit-list article {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.habit-list article > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.habit-list header i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.habit-list header span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.habit-list header button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+.habit-list article > div {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+.habit-list article > div button {
+  display: grid;
+  gap: 3px;
+  place-items: center;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  cursor: pointer;
+}
+.habit-list article > div button.done {
+  color: #fff;
+  border-color: #3fa27c;
+  background: #3fa27c;
+}
+.habit-list button small {
+  font-size: 9px;
+}
+.habit-cheer {
+  color: #3fa27c;
+  text-align: center;
+}
+
+.countdown-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.countdown-grid article {
+  position: relative;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-top: 4px solid;
+  border-radius: 12px;
+  text-align: center;
+  background: var(--surface-strong);
+}
+.countdown-grid article > button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.countdown-grid article > span,
+.countdown-grid article > small {
+  color: var(--muted);
+}
+.countdown-grid article > strong {
+  display: inline-block;
+  margin: 3px 5px;
+  font-size: 42px;
+}
+.countdown-grid h3 {
+  margin: 8px 0 3px;
+}
+.countdown-grid time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.stat-cards article {
+  display: grid;
+  gap: 3px;
+  padding: 16px;
+  border-radius: 11px;
+  background: var(--surface-strong);
+}
+.stat-cards strong {
+  color: var(--primary);
+  font-size: 27px;
+}
+.stat-cards span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.statistics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.statistics-grid > article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.statistics-grid h3 {
+  margin: 0 0 15px;
+  font-size: 14px;
+}
+.bar-chart {
+  display: flex;
+  height: 150px;
+  align-items: flex-end;
+  justify-content: space-around;
+}
+.bar-chart span {
+  display: grid;
+  height: 100%;
+  align-content: end;
+  place-items: center;
+  gap: 3px;
+}
+.bar-chart i {
+  width: 18px;
+  border-radius: 5px 5px 2px 2px;
+  background: var(--primary);
+}
+.bar-chart small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.bar-chart b {
+  font-size: 10px;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 25px;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: 11px;
+}
+.stat-row > i {
+  height: 7px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--surface-strong);
+}
+.stat-row b {
+  display: block;
+  height: 100%;
+  background: #a0a3ad;
+}
+.stat-row b.high {
+  background: #df536d;
+}
+.stat-row b.medium {
+  background: #e59a45;
+}
+.stat-row b.low {
+  background: #4c9ae8;
+}
+
+.important-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.attachment-field legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.attachment-list > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+.attachment-list a {
+  max-width: 210px;
+  overflow: hidden;
+  color: var(--primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-list small {
+  color: var(--muted);
+}
+.attachment-list button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.month-week-field > div {
+  display: flex;
+  gap: 5px;
+}
+.month-week-field select {
+  min-width: 0;
+}
+
+html[data-theme='dark'] {
+  --line: #353845;
+  --muted: #a5a8b4;
+  --primary-soft: #302e55;
+  --surface: #22242c;
+  --surface-strong: #2a2c35;
+  --text: #f0f1f5;
+  color: var(--text);
+  background: #191b21;
+}
+html[data-theme='dark'] body {
+  background:
+    radial-gradient(circle at 75% -10%, rgba(111, 99, 225, 0.13), transparent 34%), #191b21;
+}
+html[data-theme='dark'] .sidebar,
+html[data-theme='dark'] .topbar {
+  border-color: var(--line);
+  background: rgba(29, 31, 38, 0.92);
+}
+html[data-theme='dark'] .topbar h1,
+html[data-theme='dark'] .day-number,
+html[data-theme='dark'] .calendar-task,
+html[data-theme='dark'] .day-panel-heading h2,
+html[data-theme='dark'] .day-task h3,
+html[data-theme='dark'] .agenda-task,
+html[data-theme='dark'] .time-task {
+  color: var(--text);
+}
+html[data-theme='dark'] .search-box,
+html[data-theme='dark'] .view-switcher,
+html[data-theme='dark'] .today-button,
+html[data-theme='dark'] .icon-button,
+html[data-theme='dark'] .calendar-card,
+html[data-theme='dark'] .day-panel,
+html[data-theme='dark'] .quick-capture,
+html[data-theme='dark'] .day-task,
+html[data-theme='dark'] .agenda-calendar,
+html[data-theme='dark'] .time-calendar,
+html[data-theme='dark'] .unscheduled-tray,
+html[data-theme='dark'] .filter-panel,
+html[data-theme='dark'] .list-view,
+html[data-theme='dark'] .settings-card,
+html[data-theme='dark'] .settings-row,
+html[data-theme='dark'] .task-dialog,
+html[data-theme='dark'] .quick-edit-panel,
+html[data-theme='dark'] .collection-dialog {
+  border-color: var(--line);
+  background: var(--surface);
+}
+html[data-theme='dark'] .secondary-button,
+html[data-theme='dark'] .filter-toggle,
+html[data-theme='dark'] .date-jump,
+html[data-theme='dark'] .agenda-item,
+html[data-theme='dark'] .panel-add,
+html[data-theme='dark'] .day-panel-heading > span {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-strong);
+}
+html[data-theme='dark'] .dialog-footer {
+  border-color: var(--line);
+  background: var(--surface);
+}
+html[data-theme='dark'] .weekday-row,
+html[data-theme='dark'] .day-cell,
+html[data-theme='dark'] .agenda-item {
+  border-color: var(--line);
+}
+html[data-theme='dark'] .day-cell:hover,
+html[data-theme='dark'] .day-cell.selected,
+html[data-theme='dark'] .calendar-task,
+html[data-theme='dark'] .day-task,
+html[data-theme='dark'] .agenda-task,
+html[data-theme='dark'] .time-task {
+  background: var(--surface-strong);
+}
+html[data-theme='dark'] .calendar-task.high {
+  color: #ff9daf;
+  background: #4d2934;
+}
+html[data-theme='dark'] .calendar-task.medium {
+  color: #ffc17c;
+  background: #4a3826;
+}
+html[data-theme='dark'] .calendar-task.low {
+  color: #8fc7ff;
+  background: #243c53;
+}
+html[data-theme='dark'] input,
+html[data-theme='dark'] select,
+html[data-theme='dark'] textarea {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-strong);
+}
+html[data-theme='dark'] kbd {
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--surface-strong);
+}
+
 @media (max-width: 900px) {
+  .year-calendar {
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }
   .filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
+  .productivity-hub,
+  .year-calendar {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+  .year-calendar {
+    grid-template-columns: 1fr;
+  }
+  .multi-week-calendar {
+    margin-right: 12px;
+    margin-left: 12px;
+    overflow-x: auto;
+  }
+  .planning-tray {
+    margin-right: 12px;
+    margin-left: 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .multi-week-grid,
+  .multi-week-calendar .weekday-row {
+    min-width: 700px;
+  }
+  .matrix-grid,
+  .statistics-grid {
+    grid-template-columns: 1fr;
+  }
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .timeline-list > button {
+    grid-template-columns: 130px 1fr;
+  }
   .quick-capture {
     margin: 0 12px 10px;
   }

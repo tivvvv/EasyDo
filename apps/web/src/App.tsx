@@ -29,6 +29,7 @@ import {
   Edit3,
   Folder as FolderIcon,
   FolderPlus,
+  Gauge,
   History,
   Inbox,
   ListTodo,
@@ -45,14 +46,21 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   addCategory,
+  addCountdown,
+  addFocusSession,
   addFolder,
+  addHabit,
   addSavedFilter,
+  addSection,
   addTag,
   addTemplate,
   db,
   deleteCategory,
+  deleteCountdown,
   deleteFolder,
+  deleteHabit,
   deleteSavedFilter,
+  deleteSection,
   deleteTag,
   deleteTemplate,
   emptyTrash,
@@ -64,8 +72,9 @@ import {
   updateFolder,
   updateSettings,
   updateTag,
+  toggleHabitLog,
 } from '@easydo/storage';
-import { matchesFilter, parseBackup } from '@easydo/application';
+import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
 
 import { taskService } from './application';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
@@ -73,6 +82,7 @@ import { CollectionDialog } from './components/CollectionDialog';
 import { FilterPanel } from './components/FilterPanel';
 import { QuickEditPanel } from './components/QuickEditPanel';
 import { QuickCapture } from './components/QuickCapture';
+import { ProductivityHub } from './components/ProductivityHub';
 import { TaskDialog } from './components/TaskDialog';
 import { TaskList } from './components/TaskList';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
@@ -81,7 +91,10 @@ import { toDateKey } from './lib/calendar';
 import './styles.css';
 
 type View =
-  | { kind: 'all' | 'calendar' | 'history' | 'inbox' | 'settings' | 'today' | 'trash' }
+  | {
+      kind:
+        'all' | 'calendar' | 'history' | 'inbox' | 'productivity' | 'settings' | 'today' | 'trash';
+    }
   | { id: string; kind: 'category' | 'folder' | 'tag' };
 
 const today = startOfDay(new Date());
@@ -152,6 +165,18 @@ export function App() {
 
   useTaskReminders(data?.tasks ?? []);
 
+  useEffect(() => {
+    const theme = data?.settings.theme ?? 'system';
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [data?.settings.theme]);
+
   if (!data) {
     return (
       <div className="loading-screen">
@@ -163,7 +188,20 @@ export function App() {
     );
   }
 
-  const { activities, categories, filters, folders = [], settings, tags, tasks, templates } = data;
+  const {
+    activities,
+    categories,
+    countdowns,
+    filters,
+    focusSessions,
+    folders = [],
+    habits,
+    sections,
+    settings,
+    tags,
+    tasks,
+    templates,
+  } = data;
   const activeCalendarMode = calendarMode ?? settings.defaultCalendarMode;
   const activeTasks = tasks.filter((task) => !task.deletedAt);
   const trashedTasks = tasks.filter((task) => task.deletedAt);
@@ -262,6 +300,12 @@ export function App() {
             icon={<ListTodo size={18} />}
             label="全部任务"
             onClick={() => chooseView({ kind: 'all' })}
+          />
+          <NavButton
+            active={view.kind === 'productivity'}
+            icon={<Gauge size={18} />}
+            label="效率工作台"
+            onClick={() => chooseView({ kind: 'productivity' })}
           />
         </nav>
 
@@ -402,7 +446,9 @@ export function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{view.kind === 'calendar' ? '日历' : '任务'}</p>
+            <p className="eyebrow">
+              {view.kind === 'calendar' ? '日历' : view.kind === 'productivity' ? '效率' : '任务'}
+            </p>
             <h1>
               {view.kind === 'calendar'
                 ? calendarTitle(
@@ -476,7 +522,16 @@ export function App() {
                 />
                 <div className="view-switcher" aria-label="日历视图">
                   {(
-                    ['month', 'week', 'fiveDay', 'threeDay', 'day', 'agenda'] as CalendarMode[]
+                    [
+                      'year',
+                      'month',
+                      'multiWeek',
+                      'week',
+                      'fiveDay',
+                      'threeDay',
+                      'day',
+                      'agenda',
+                    ] as CalendarMode[]
                   ).map((mode) => (
                     <button
                       className={activeCalendarMode === mode ? 'active' : ''}
@@ -493,8 +548,10 @@ export function App() {
                           day: '日',
                           fiveDay: '5 日',
                           month: '月',
+                          multiWeek: '4 周',
                           threeDay: '3 日',
                           week: '周',
+                          year: '年',
                         }[mode]
                       }
                     </button>
@@ -604,6 +661,44 @@ export function App() {
             settings={settings}
             tasks={filteredTasks}
           />
+        ) : view.kind === 'productivity' ? (
+          <ProductivityHub
+            categories={categories}
+            countdowns={countdowns}
+            focusSessions={focusSessions}
+            habits={habits}
+            onAddCountdown={async (name, date) => {
+              await addCountdown(name, date);
+              showToast('倒数日已添加.');
+            }}
+            onAddFocusSession={async (session) => {
+              await addFocusSession(session);
+              showToast('专注记录已保存.');
+            }}
+            onAddHabit={async (name) => {
+              await addHabit(name);
+              showToast('习惯已创建.');
+            }}
+            onAddSection={async (categoryId, name) => {
+              await addSection(categoryId, name);
+              showToast('分区已创建.');
+            }}
+            onDeleteCountdown={deleteCountdown}
+            onDeleteHabit={deleteHabit}
+            onDeleteSection={deleteSection}
+            onEdit={(task) => {
+              setEditingTask(task);
+              setTaskDialogOpen(true);
+            }}
+            onToggleHabit={toggleHabitLog}
+            onUpdateTask={async (id, patch) => {
+              await taskService.update(id, patch);
+              showToast('任务已调整.', true);
+            }}
+            sections={sections}
+            settings={settings}
+            tasks={activeTasks}
+          />
         ) : view.kind === 'settings' ? (
           <SettingsView
             categories={categories.length}
@@ -622,6 +717,26 @@ export function App() {
               const payload = parseBackup(await file.text());
               await replaceFromBackup(payload);
               showToast('备份已恢复.');
+            }}
+            onExportIcs={() => {
+              downloadText(
+                exportTasksToIcs(activeTasks),
+                `easydo-calendar-${format(new Date(), 'yyyy-MM-dd')}.ics`,
+                'text/calendar',
+              );
+              showToast('日历文件已导出.');
+            }}
+            onImportIcs={async (file) => {
+              const drafts = parseIcs(await file.text(), categories[0]?.id ?? '');
+              for (const draft of drafts) {
+                await taskService.create({
+                  ...draft,
+                  categoryId: categories.some((category) => category.id === draft.categoryId)
+                    ? draft.categoryId
+                    : (categories[0]?.id ?? ''),
+                });
+              }
+              showToast(`已导入 ${drafts.length} 个日历条目.`);
             }}
             onRequestReminder={async () => {
               const result = await requestReminderPermission();
@@ -730,6 +845,7 @@ export function App() {
             showToast('任务模板已保存.');
           }}
           open
+          sections={sections}
           tags={tags}
           task={editingTask}
           templates={templates}
@@ -972,6 +1088,7 @@ function getViewTitle(
   if (view.kind === 'today') return '今天';
   if (view.kind === 'inbox') return '收集箱';
   if (view.kind === 'all') return '全部任务';
+  if (view.kind === 'productivity') return '效率工作台';
   if (view.kind === 'history') return '操作记录';
   if (view.kind === 'trash') return '回收站';
   if (view.kind === 'category')
@@ -982,7 +1099,9 @@ function getViewTitle(
 }
 
 function navigateDate(date: Date, mode: CalendarMode, amount: number, agendaDays: number): Date {
+  if (mode === 'year') return new Date(date.getFullYear() + amount, date.getMonth(), 1, 12);
   if (mode === 'month') return addMonths(date, amount);
+  if (mode === 'multiWeek') return addWeeks(date, amount * 4);
   if (mode === 'week') return addWeeks(date, amount);
   if (mode === 'fiveDay') return addDays(date, amount * 5);
   if (mode === 'threeDay') return addDays(date, amount * 3);
@@ -996,6 +1115,7 @@ function calendarTitle(
   agendaDays: number,
   weekStartsOn: 0 | 1,
 ): string {
+  if (mode === 'year') return format(date, 'yyyy 年', { locale: zhCN });
   if (mode === 'month') return format(date, 'yyyy 年 M 月', { locale: zhCN });
   if (mode === 'day') return format(date, 'M 月 d 日 EEEE', { locale: zhCN });
   if (mode === 'fiveDay' || mode === 'threeDay') {
@@ -1006,7 +1126,7 @@ function calendarTitle(
     return `${format(date, 'M 月 d 日')} - ${format(addDays(date, agendaDays - 1), 'M 月 d 日')}`;
   }
   const start = startOfWeek(date, { weekStartsOn });
-  const end = addDays(start, 6);
+  const end = addDays(start, mode === 'multiWeek' ? 27 : 6);
   return `${format(start, 'M 月 d 日')} - ${format(end, 'M 月 d 日')}`;
 }
 
@@ -1015,6 +1135,8 @@ function SettingsView({
   onClearCompleted,
   onExport,
   onImport,
+  onExportIcs,
+  onImportIcs,
   onRequestReminder,
   onDeleteTemplate,
   onUpdateSettings,
@@ -1027,6 +1149,8 @@ function SettingsView({
   onClearCompleted: () => Promise<void>;
   onExport: () => Promise<void>;
   onImport: (file: File) => Promise<void>;
+  onExportIcs: () => void;
+  onImportIcs: (file: File) => Promise<void>;
   onRequestReminder: () => Promise<void>;
   onDeleteTemplate: (id: string) => Promise<void>;
   onUpdateSettings: (patch: Partial<Omit<AppSettings, 'id'>>) => Promise<void>;
@@ -1060,6 +1184,49 @@ function SettingsView({
           <strong>{tags}</strong>
           <span>标签</span>
         </article>
+      </div>
+      <div className="settings-row">
+        <div>
+          <strong>外观和专注</strong>
+          <p>选择主题并设置番茄钟时长.</p>
+        </div>
+        <div className="settings-inline-fields">
+          <select
+            aria-label="主题"
+            onChange={(event) =>
+              void onUpdateSettings({ theme: event.target.value as AppSettings['theme'] })
+            }
+            value={settings.theme}
+          >
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+          <label>
+            专注分钟
+            <input
+              min={1}
+              max={120}
+              onChange={(event) =>
+                void onUpdateSettings({ pomodoroMinutes: Number(event.target.value) })
+              }
+              type="number"
+              value={settings.pomodoroMinutes}
+            />
+          </label>
+          <label>
+            休息分钟
+            <input
+              min={1}
+              max={60}
+              onChange={(event) =>
+                void onUpdateSettings({ shortBreakMinutes: Number(event.target.value) })
+              }
+              type="number"
+              value={settings.shortBreakMinutes}
+            />
+          </label>
+        </div>
       </div>
       <div className="settings-row">
         <div>
@@ -1100,6 +1267,8 @@ function SettingsView({
             value={settings.defaultCalendarMode}
           >
             <option value="month">月视图</option>
+            <option value="year">年视图</option>
+            <option value="multiWeek">4 周视图</option>
             <option value="week">周视图</option>
             <option value="fiveDay">5 日视图</option>
             <option value="threeDay">3 日视图</option>
@@ -1123,6 +1292,31 @@ function SettingsView({
               type="checkbox"
             />
             显示周末
+          </label>
+        </div>
+      </div>
+      <div className="settings-row">
+        <div>
+          <strong>日历导入和导出</strong>
+          <p>使用标准 ICS 文件与其他日历应用交换任务和事件.</p>
+        </div>
+        <div className="settings-actions">
+          <button className="secondary-button" onClick={onExportIcs} type="button">
+            <Download size={16} />
+            导出 ICS
+          </button>
+          <label className="secondary-button file-button">
+            <Upload size={16} />
+            导入 ICS
+            <input
+              accept="text/calendar,.ics"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void onImportIcs(file);
+                event.target.value = '';
+              }}
+              type="file"
+            />
           </label>
         </div>
       </div>
@@ -1364,6 +1558,16 @@ function downloadBackup(payload: unknown): void {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = `easydo-backup-${format(new Date(), 'yyyy-MM-dd-HHmm')}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadText(content: string, filename: string, type: string): void {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
 }

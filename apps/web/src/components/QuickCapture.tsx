@@ -23,6 +23,7 @@ export function QuickCapture({ categories, onCreate, tags }: QuickCaptureProps) 
     });
     const draft: TaskDraft = {
       allDay: parsed.draft.allDay ?? !parsed.draft.dueTime,
+      attachments: [],
       categoryId: categories[0]?.id ?? '',
       dueDate: parsed.draft.dueDate ?? null,
       dueTime: parsed.draft.dueTime ?? null,
@@ -30,12 +31,14 @@ export function QuickCapture({ categories, onCreate, tags }: QuickCaptureProps) 
       endDate: null,
       endTime: null,
       kind: 'task',
+      important: parsed.draft.priority === 'high',
       notes: '',
       parentId: null,
       priority: parsed.draft.priority ?? 'none',
       recurrence: null,
       reminderMinutes: parsed.draft.reminderMinutes ?? null,
       reminders: parsed.draft.reminders ?? [],
+      sectionId: null,
       subtasks: [],
       tagIds: knownTagIds,
       timeZone: getLocalTimeZone(),

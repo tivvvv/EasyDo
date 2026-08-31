@@ -24,23 +24,43 @@ export function useWorkspaceData() {
       return undefined;
     }
 
-    const [activities, tasks, categories, filters, folders, settings, tags, templates] =
-      await Promise.all([
-        db.activities.orderBy('createdAt').reverse().limit(50).toArray(),
-        db.tasks.toArray(),
-        db.categories.orderBy('order').toArray(),
-        db.filters.orderBy('name').toArray(),
-        db.folders.orderBy('order').toArray(),
-        db.settings.get('default'),
-        db.tags.orderBy('name').toArray(),
-        db.templates.orderBy('name').toArray(),
-      ]);
+    const [
+      activities,
+      tasks,
+      categories,
+      countdowns,
+      filters,
+      focusSessions,
+      folders,
+      habits,
+      sections,
+      settings,
+      tags,
+      templates,
+    ] = await Promise.all([
+      db.activities.orderBy('createdAt').reverse().limit(50).toArray(),
+      db.tasks.toArray(),
+      db.categories.orderBy('order').toArray(),
+      db.countdowns.orderBy('date').toArray(),
+      db.filters.orderBy('name').toArray(),
+      db.focusSessions.orderBy('createdAt').reverse().toArray(),
+      db.folders.orderBy('order').toArray(),
+      db.habits.orderBy('createdAt').toArray(),
+      db.sections.orderBy('order').toArray(),
+      db.settings.get('default'),
+      db.tags.orderBy('name').toArray(),
+      db.templates.orderBy('name').toArray(),
+    ]);
 
     return {
       activities,
       categories,
+      countdowns,
       filters,
+      focusSessions,
       folders,
+      habits,
+      sections,
       settings: settings ?? { ...defaultAppSettings },
       tags,
       tasks,

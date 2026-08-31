@@ -2,6 +2,7 @@ import type {
   Category,
   Priority,
   RecurrenceEditScope,
+  Section,
   Tag,
   Task,
   TaskDraft,
@@ -24,6 +25,7 @@ import {
   Check,
   Clock3,
   Flag,
+  Paperclip,
   Plus,
   Repeat2,
   Trash2,
@@ -41,6 +43,7 @@ type TaskDialogProps = {
   onSave: (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => Promise<void>;
   onSaveTemplate: (name: string, draft: TaskDraft) => Promise<void>;
   open: boolean;
+  sections: Section[];
   tags: Tag[];
   task: Task | null;
   templates: TaskTemplate[];
@@ -48,6 +51,7 @@ type TaskDialogProps = {
 
 const emptyDraft: TaskDraft = {
   allDay: true,
+  attachments: [],
   categoryId: 'category-work',
   dueDate: null,
   dueTime: null,
@@ -55,12 +59,14 @@ const emptyDraft: TaskDraft = {
   endDate: null,
   endTime: null,
   kind: 'task',
+  important: false,
   notes: '',
   parentId: null,
   priority: 'none',
   recurrence: null,
   reminderMinutes: null,
   reminders: [],
+  sectionId: null,
   subtasks: [],
   tagIds: [],
   timeZone: getLocalTimeZone(),
@@ -77,6 +83,7 @@ export function TaskDialog({
   onSave,
   onSaveTemplate,
   open,
+  sections,
   tags,
   task,
   templates,
@@ -86,6 +93,7 @@ export function TaskDialog({
     task
       ? {
           allDay: task.allDay,
+          attachments: task.attachments,
           categoryId: task.categoryId,
           dueDate: task.dueDate,
           dueTime: task.dueTime,
@@ -93,12 +101,14 @@ export function TaskDialog({
           endDate: task.endDate,
           endTime: task.endTime,
           kind: task.kind,
+          important: task.important,
           notes: task.notes,
           parentId: task.parentId,
           priority: task.priority,
           recurrence: task.recurrence,
           reminderMinutes: task.reminderMinutes,
           reminders: task.reminders,
+          sectionId: task.sectionId,
           subtasks: task.subtasks,
           tagIds: task.tagIds,
           timeZone: task.timeZone,
@@ -142,6 +152,12 @@ export function TaskDialog({
     }
     if (draft.dueDate && draft.endDate && draft.endDate < draft.dueDate) {
       setError('结束日期不能早于开始日期.');
+      return;
+    }
+    try {
+      new Intl.DateTimeFormat('zh-CN', { timeZone: draft.timeZone });
+    } catch {
+      setError('请输入有效的 IANA 时区, 例如 Asia/Shanghai.');
       return;
     }
 
@@ -334,7 +350,9 @@ export function TaskDialog({
             <label className="field">
               <span>分类</span>
               <select
-                onChange={(event) => setDraft({ ...draft, categoryId: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, categoryId: event.target.value, sectionId: null })
+                }
                 value={draft.categoryId}
               >
                 {categories.map((category) => (
@@ -342,6 +360,22 @@ export function TaskDialog({
                     {category.name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>分区</span>
+              <select
+                onChange={(event) => setDraft({ ...draft, sectionId: event.target.value || null })}
+                value={draft.sectionId ?? ''}
+              >
+                <option value="">未分区</option>
+                {sections
+                  .filter((section) => section.categoryId === draft.categoryId)
+                  .map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.name}
+                    </option>
+                  ))}
               </select>
             </label>
             <label className="field">
@@ -449,6 +483,26 @@ export function TaskDialog({
           {draft.recurrence && (
             <div className="recurrence-options">
               <label className="field">
+                <span>重复基准</span>
+                <select
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      recurrence: draft.recurrence
+                        ? {
+                            ...draft.recurrence,
+                            basis: event.target.value as 'completion' | 'scheduled',
+                          }
+                        : null,
+                    })
+                  }
+                  value={draft.recurrence.basis}
+                >
+                  <option value="scheduled">按计划日期</option>
+                  <option value="completion">按完成日期</option>
+                </select>
+              </label>
+              <label className="field">
                 <span>重复间隔</span>
                 <input
                   max={99}
@@ -500,7 +554,11 @@ export function TaskDialog({
                         recurrence: draft.recurrence
                           ? {
                               ...draft.recurrence,
-                              monthMode: event.target.value as 'date' | 'lastDay',
+                              monthMode: event.target.value as 'date' | 'lastDay' | 'weekDay',
+                              monthWeek:
+                                event.target.value === 'weekDay'
+                                  ? (draft.recurrence.monthWeek ?? { week: 1, weekDay: 1 })
+                                  : null,
                             }
                           : null,
                       })
@@ -509,9 +567,68 @@ export function TaskDialog({
                   >
                     <option value="date">同一日期</option>
                     <option value="lastDay">每月最后一天</option>
+                    <option value="weekDay">同一周次和星期</option>
                   </select>
                 </label>
               )}
+              {draft.recurrence.frequency === 'monthly' &&
+                draft.recurrence.monthMode === 'weekDay' && (
+                  <div className="field month-week-field">
+                    <span>月内周次</span>
+                    <div>
+                      <select
+                        aria-label="月内周次"
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            recurrence: draft.recurrence
+                              ? {
+                                  ...draft.recurrence,
+                                  monthWeek: {
+                                    week: Number(event.target.value),
+                                    weekDay: draft.recurrence.monthWeek?.weekDay ?? 1,
+                                  },
+                                }
+                              : null,
+                          })
+                        }
+                        value={draft.recurrence.monthWeek?.week ?? 1}
+                      >
+                        <option value="1">第 1 个</option>
+                        <option value="2">第 2 个</option>
+                        <option value="3">第 3 个</option>
+                        <option value="4">第 4 个</option>
+                        <option value="-1">最后 1 个</option>
+                      </select>
+                      <select
+                        aria-label="月内星期"
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            recurrence: draft.recurrence
+                              ? {
+                                  ...draft.recurrence,
+                                  monthWeek: {
+                                    week: draft.recurrence.monthWeek?.week ?? 1,
+                                    weekDay: Number(event.target.value),
+                                  },
+                                }
+                              : null,
+                          })
+                        }
+                        value={draft.recurrence.monthWeek?.weekDay ?? 1}
+                      >
+                        {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map(
+                          (label, index) => (
+                            <option key={label} value={index}>
+                              {label}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                )}
               <label className="field">
                 <span>结束日期</span>
                 <input
@@ -778,7 +895,104 @@ export function TaskDialog({
                 </button>
               ))}
             </div>
+            <label className="important-toggle">
+              <input
+                checked={draft.important}
+                onChange={(event) => setDraft({ ...draft, important: event.target.checked })}
+                type="checkbox"
+              />
+              标记为重要任务
+            </label>
           </fieldset>
+
+          <fieldset className="choice-field attachment-field">
+            <legend>
+              <Paperclip size={14} />
+              附件
+            </legend>
+            <div className="attachment-list">
+              {draft.attachments.map((attachment) => (
+                <span key={attachment.id}>
+                  <a download={attachment.name} href={attachment.dataUrl}>
+                    {attachment.name}
+                  </a>
+                  <small>{formatFileSize(attachment.size)}</small>
+                  <button
+                    aria-label={`删除附件 ${attachment.name}`}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        attachments: draft.attachments.filter((item) => item.id !== attachment.id),
+                      })
+                    }
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+              <label className="secondary-button file-button">
+                <Plus size={14} />
+                添加附件
+                <input
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    if (file.size > 5 * 1024 * 1024) {
+                      setError('单个附件不能超过 5 MB.');
+                      return;
+                    }
+                    if (
+                      draft.attachments.length >= 10 ||
+                      draft.attachments.reduce((sum, item) => sum + item.size, 0) + file.size >
+                        20 * 1024 * 1024
+                    ) {
+                      setError('每个任务最多 10 个附件, 总大小不能超过 20 MB.');
+                      return;
+                    }
+                    const dataUrl = await readFile(file);
+                    setDraft((current) => ({
+                      ...current,
+                      attachments: [
+                        ...current.attachments,
+                        {
+                          createdAt: new Date().toISOString(),
+                          dataUrl,
+                          id: createId('attachment'),
+                          mimeType: file.type || 'application/octet-stream',
+                          name: file.name,
+                          size: file.size,
+                        },
+                      ],
+                    }));
+                  }}
+                  type="file"
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <label className="field full-field">
+            <span>时区</span>
+            <input
+              list="time-zone-list"
+              onChange={(event) => setDraft({ ...draft, timeZone: event.target.value })}
+              value={draft.timeZone}
+            />
+            <datalist id="time-zone-list">
+              {[
+                'Asia/Shanghai',
+                'Asia/Tokyo',
+                'Europe/London',
+                'America/New_York',
+                'America/Los_Angeles',
+                'UTC',
+              ].map((zone) => (
+                <option key={zone} value={zone} />
+              ))}
+            </datalist>
+          </label>
 
           <fieldset className="choice-field">
             <legend>标签</legend>
@@ -887,4 +1101,21 @@ function renderNotePreview(notes: string) {
       .replace(/^- \[([ x])\]\s*/i, (_, checked: string) => (checked === 'x' ? '☑ ' : '☐ '));
     return <p key={`${index}-${line}`}>{content || '\u00a0'}</p>;
   });
+}
+
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result)));
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('读取附件失败.')));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatFileSize(bytes: number): string {
+  return bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 * 1024
+      ? `${Math.round(bytes / 1024)} KB`
+      : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

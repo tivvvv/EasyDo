@@ -93,7 +93,7 @@ test('编辑标签并打开数据设置', async ({ page, isMobile }) => {
 
   await page.getByRole('button', { name: '设置与数据' }).click();
   await expect(page.getByText('备份与恢复')).toBeVisible();
-  await expect(page.getByRole('button', { name: '导出' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeVisible();
   await expect(page.getByText('任务提醒')).toBeVisible();
 });
 
@@ -217,4 +217,40 @@ test('在日历中框选时间段创建任务', async ({ page, isMobile }) => {
   await page.mouse.up();
   await expect(page.getByRole('dialog', { name: '安排一件事' })).toBeVisible();
   await expect(page.getByLabel('预计时长')).toHaveValue('60');
+});
+
+test('使用年视图, 四周视图和计划收件箱', async ({ page, isMobile }) => {
+  test.skip(isMobile, '进阶日历规划由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByLabel('快速添加任务').fill('待安排验收任务');
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await page.getByRole('button', { name: '年', exact: true }).click();
+  await expect(page.locator('.year-calendar')).toBeVisible();
+  await expect(page.locator('.year-month')).toHaveCount(12);
+  await page.getByRole('button', { name: '4 周', exact: true }).click();
+  await expect(page.locator('.multi-week-calendar')).toBeVisible();
+  await expect(page.locator('.planning-tray')).toContainText('计划收件箱');
+});
+
+test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => {
+  test.skip(isMobile, '效率工作台完整流程由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '效率工作台' }).click();
+  await expect(page.getByRole('heading', { name: '任务看板' })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept('待评审'));
+  await page.getByRole('button', { name: '新建分区' }).click();
+  await expect(page.locator('.kanban-column', { hasText: '待评审' })).toBeVisible();
+
+  await page.getByRole('button', { name: '习惯', exact: true }).click();
+  page.once('dialog', (dialog) => dialog.accept('每日阅读'));
+  await page.getByRole('button', { name: '新建习惯' }).click();
+  await expect(page.getByText('每日阅读')).toBeVisible();
+  await page
+    .getByRole('button', { name: /未打卡/ })
+    .last()
+    .click();
+  await expect(page.getByText('今天已经开始积累了.')).toBeVisible();
+
+  await page.getByRole('button', { name: '统计', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '效率统计' })).toBeVisible();
 });

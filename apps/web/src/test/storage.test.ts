@@ -2,14 +2,21 @@ import {
   EasyDoDatabase,
   Dexie,
   addCategory,
+  addCountdown,
+  addFocusSession,
   addFolder,
+  addHabit,
   addSavedFilter,
+  addSection,
   addTag,
   addTask,
   addTemplate,
   deleteCategory,
+  deleteCountdown,
   deleteFolder,
+  deleteHabit,
   deleteSavedFilter,
+  deleteSection,
   deleteTemplate,
   deleteTag,
   deleteTask,
@@ -22,6 +29,7 @@ import {
   reorderTasks,
   reorderCategories,
   toggleTask,
+  toggleHabitLog,
   updateCategory,
   updateFolder,
   updateTag,
@@ -68,6 +76,7 @@ describe('本地数据仓库', () => {
     await initializeDatabase(database);
     const created = await addTask(
       {
+        attachments: [],
         allDay: false,
         categoryId: 'category-work',
         dueDate: '2026-09-01',
@@ -75,6 +84,7 @@ describe('本地数据仓库', () => {
         duration: 45,
         endDate: null,
         endTime: '11:15',
+        important: true,
         kind: 'task',
         notes: '测试备注',
         parentId: null,
@@ -82,6 +92,7 @@ describe('本地数据仓库', () => {
         recurrence: null,
         reminderMinutes: null,
         reminders: [],
+        sectionId: null,
         subtasks: [],
         tagIds: ['tag-focus'],
         timeZone: getLocalTimeZone(),
@@ -128,6 +139,9 @@ describe('本地数据仓库', () => {
 
   it('更新和删除分类时重新分配关联任务', async () => {
     await initializeDatabase(database);
+    const section = await addSection('category-work', '待处理', database);
+    const task = await database.tasks.where('categoryId').equals('category-work').first();
+    if (task) await updateTask(task.id, { sectionId: section.id }, database);
     await updateCategory('category-work', { color: '#abcdef', name: '新工作' }, database);
     expect(await database.categories.get('category-work')).toMatchObject({
       color: '#abcdef',
@@ -137,6 +151,8 @@ describe('本地数据仓库', () => {
     await deleteCategory('category-work', 'category-personal', database);
     expect(await database.categories.get('category-work')).toBeUndefined();
     expect(await database.tasks.where('categoryId').equals('category-work').count()).toBe(0);
+    expect(await database.sections.where('categoryId').equals('category-work').count()).toBe(0);
+    if (task) expect((await database.tasks.get(task.id))?.sectionId).toBeNull();
   });
 
   it('按指定顺序排列分类', async () => {
@@ -159,7 +175,7 @@ describe('本地数据仓库', () => {
   it('通过仓库适配器执行任务读写', async () => {
     await initializeDatabase(database);
     const repository = new DexieTaskRepository(database);
-    const task = (await database.tasks.toArray())[0]!;
+    const task = (await database.tasks.toArray()).find((item) => !item.seriesId)!;
     await repository.update(task.id, { title: '仓库更新任务' });
     expect((await repository.get(task.id))?.title).toBe('仓库更新任务');
     const copy = { ...task, id: `task-${crypto.randomUUID()}`, title: '仓库新增任务' };
@@ -216,6 +232,7 @@ describe('本地数据仓库', () => {
     const template = await addTemplate(
       '快速任务',
       {
+        attachments: [],
         allDay: true,
         categoryId: 'category-work',
         dueDate: null,
@@ -223,6 +240,7 @@ describe('本地数据仓库', () => {
         duration: 30,
         endDate: null,
         endTime: null,
+        important: false,
         kind: 'task',
         notes: '',
         parentId: null,
@@ -230,6 +248,7 @@ describe('本地数据仓库', () => {
         recurrence: null,
         reminderMinutes: null,
         reminders: [],
+        sectionId: null,
         subtasks: [],
         tagIds: [],
         timeZone: getLocalTimeZone(),
@@ -247,6 +266,41 @@ describe('本地数据仓库', () => {
     await deleteTemplate(template.id, database);
     expect(await database.filters.get(filter.id)).toBeUndefined();
     expect(await database.templates.get(template.id)).toBeUndefined();
+  });
+
+  it('管理分区, 习惯, 专注记录和倒数日并纳入备份', async () => {
+    await initializeDatabase(database);
+    const section = await addSection('category-work', '进行中', database);
+    const task = (await database.tasks.where('categoryId').equals('category-work').first())!;
+    await updateTask(task.id, { sectionId: section.id }, database);
+    const habit = await addHabit('每日阅读', '#3fa27c', database);
+    await toggleHabitLog(habit.id, '2026-08-31', database);
+    const focus = await addFocusSession(
+      {
+        durationMinutes: 25,
+        endedAt: '2026-08-31T01:25:00.000Z',
+        mode: 'pomodoro',
+        startedAt: '2026-08-31T01:00:00.000Z',
+        taskId: task.id,
+      },
+      database,
+    );
+    const countdown = await addCountdown('项目发布', '2026-09-30', database);
+    const backup = await exportBackup(database);
+    expect(backup).toMatchObject({
+      countdowns: [{ id: countdown.id, title: '项目发布' }],
+      focusSessions: [{ id: focus.id, durationMinutes: 25 }],
+      habits: [{ id: habit.id, logs: ['2026-08-31'] }],
+      sections: [{ id: section.id, name: '进行中' }],
+      version: 4,
+    });
+
+    await deleteSection(section.id, database);
+    expect((await database.tasks.get(task.id))?.sectionId).toBeNull();
+    await deleteHabit(habit.id, database);
+    await deleteCountdown(countdown.id, database);
+    expect(await database.habits.count()).toBe(0);
+    expect(await database.countdowns.count()).toBe(0);
   });
 
   it('从 1.2 数据库迁移任务, 设置, 筛选和模板', async () => {
@@ -335,18 +389,26 @@ describe('本地数据仓库', () => {
     await upgraded.open();
     expect(await upgraded.tasks.get('task-old')).toMatchObject({
       allDay: false,
+      attachments: [],
       endTime: '09:30',
+      important: false,
       kind: 'task',
       reminders: [expect.objectContaining({ offsetMinutes: 10 })],
+      sectionId: null,
     });
     expect((await upgraded.tasks.get('task-old'))?.subtasks[0]).toMatchObject({
       notes: '',
       priority: 'none',
     });
     expect((await upgraded.filters.get('filter-old'))?.criteria.kind).toBe('all');
-    expect((await upgraded.settings.get('default'))?.taskSort).toBe('manual');
+    expect(await upgraded.settings.get('default')).toMatchObject({
+      taskSort: 'manual',
+      theme: 'system',
+    });
     expect((await upgraded.templates.get('template-old'))?.draft.kind).toBe('task');
     expect((await upgraded.activities.get('activity-old'))?.after?.kind).toBe('task');
+    expect(await upgraded.sections.count()).toBe(0);
+    expect(await upgraded.habits.count()).toBe(0);
     await upgraded.delete();
   });
 

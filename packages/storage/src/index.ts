@@ -3,8 +3,12 @@ import type {
   AppSettings,
   BackupPayload,
   Category,
+  Countdown,
+  FocusSession,
   Folder,
+  Habit,
   SavedFilter,
+  Section,
   Tag,
   Task,
   TaskDraft,
@@ -26,9 +30,13 @@ export { default as Dexie } from 'dexie';
 export class EasyDoDatabase extends Dexie {
   activities!: EntityTable<ActivityRecord, 'id'>;
   categories!: EntityTable<Category, 'id'>;
+  countdowns!: EntityTable<Countdown, 'id'>;
   filters!: EntityTable<SavedFilter, 'id'>;
+  focusSessions!: EntityTable<FocusSession, 'id'>;
   folders!: EntityTable<Folder, 'id'>;
+  habits!: EntityTable<Habit, 'id'>;
   settings!: EntityTable<AppSettings, 'id'>;
+  sections!: EntityTable<Section, 'id'>;
   tags!: EntityTable<Tag, 'id'>;
   tasks!: EntityTable<Task, 'id'>;
   templates!: EntityTable<TaskTemplate, 'id'>;
@@ -56,6 +64,49 @@ export class EasyDoDatabase extends Dexie {
             task.recurrence ??= null;
             task.reminderMinutes ??= null;
             task.subtasks ??= [];
+          });
+      });
+    this.version(5)
+      .stores({
+        activities: 'id, action, createdAt, groupId, taskId',
+        categories: 'id, folderId, order, name',
+        countdowns: 'id, date, title',
+        filters: 'id, createdAt, name',
+        focusSessions: 'id, createdAt, startedAt, taskId',
+        folders: 'id, order, name',
+        habits: 'id, archivedAt, createdAt, name, *logs',
+        sections: 'id, categoryId, order, name',
+        settings: 'id',
+        tags: 'id, name',
+        tasks:
+          'id, dueDate, dueTime, endDate, categoryId, completedAt, deletedAt, important, kind, order, parentId, priority, sectionId, seriesId, createdAt, *tagIds',
+        templates: 'id, createdAt, name',
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table<Task>('tasks')
+          .toCollection()
+          .modify((task) => {
+            upgradeTask(task);
+          });
+        await transaction
+          .table<TaskTemplate>('templates')
+          .toCollection()
+          .modify((template) => {
+            template.draft = upgradeDraft(template.draft);
+          });
+        await transaction
+          .table<ActivityRecord>('activities')
+          .toCollection()
+          .modify((activity) => {
+            if (activity.before) upgradeTask(activity.before);
+            if (activity.after) upgradeTask(activity.after);
+          });
+        await transaction
+          .table<AppSettings>('settings')
+          .toCollection()
+          .modify((settings) => {
+            Object.assign(settings, normalizeSettings(settings));
           });
       });
     this.version(3)
@@ -135,15 +186,18 @@ export class EasyDoDatabase extends Dexie {
 }
 
 function upgradeTask(task: Task): Task {
+  task.attachments ??= [];
   task.allDay ??= !task.dueTime;
   task.endTime ??= task.dueTime ? addMinutesToTime(task.dueTime, task.duration) : null;
   task.kind ??= 'task';
+  task.important ??= task.priority === 'high';
   task.parentId ??= null;
   task.reminders ??=
     task.reminderMinutes === null || task.reminderMinutes === undefined
       ? []
       : [createReminder(task.reminderMinutes)];
   task.seriesId ??= task.recurrence ? createId('series') : null;
+  task.sectionId ??= null;
   task.timeZone ??= getLocalTimeZone();
   task.subtasks = task.subtasks.map((subtask) => ({
     ...createSubtask(subtask.title),
@@ -164,10 +218,12 @@ function upgradeDraft(draft: TaskDraft): TaskDraft {
   const reminderMinutes = draft.reminderMinutes ?? null;
   return {
     ...draft,
+    attachments: draft.attachments ?? [],
     allDay: draft.allDay ?? !draft.dueTime,
     endTime:
       draft.endTime ?? (draft.dueTime ? addMinutesToTime(draft.dueTime, draft.duration) : null),
     kind: draft.kind ?? 'task',
+    important: draft.important ?? draft.priority === 'high',
     parentId: draft.parentId ?? null,
     recurrence: draft.recurrence
       ? {
@@ -184,6 +240,7 @@ function upgradeDraft(draft: TaskDraft): TaskDraft {
       ...subtask,
       tagIds: subtask.tagIds ?? [],
     })),
+    sectionId: draft.sectionId ?? null,
     timeZone: draft.timeZone ?? getLocalTimeZone(),
   };
 }
@@ -270,6 +327,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
       ]);
       await database.tasks.bulkAdd([
         {
+          attachments: [],
           allDay: false,
           categoryId: 'category-work',
           completedAt: null,
@@ -281,6 +339,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           endDate: null,
           endTime: '10:15',
           id: createId('task'),
+          important: true,
           kind: 'task',
           notes: '双击日历空白处可以快速创建任务.',
           order: 0,
@@ -290,6 +349,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           reminderMinutes: 10,
           reminders: [createReminder(10)],
           seriesId: null,
+          sectionId: null,
           subtasks: [createSubtask('确认今天的截止事项'), createSubtask('选出最重要的三项任务')],
           tagIds: ['tag-focus'],
           timeZone: getLocalTimeZone(),
@@ -297,6 +357,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           updatedAt: createdAt,
         },
         {
+          attachments: [],
           allDay: false,
           categoryId: 'category-personal',
           completedAt: null,
@@ -308,6 +369,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           endDate: null,
           endTime: '19:00',
           id: createId('task'),
+          important: false,
           kind: 'task',
           notes: '完成任务后点击左侧圆框.',
           order: 1,
@@ -317,6 +379,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           reminderMinutes: null,
           reminders: [],
           seriesId: createId('series'),
+          sectionId: null,
           subtasks: [],
           tagIds: ['tag-routine'],
           timeZone: getLocalTimeZone(),
@@ -324,6 +387,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           updatedAt: createdAt,
         },
         {
+          attachments: [],
           allDay: true,
           categoryId: 'category-study',
           completedAt: null,
@@ -335,6 +399,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           endDate: null,
           endTime: null,
           id: createId('task'),
+          important: false,
           kind: 'task',
           notes: '你可以把日历中的任务拖到其他日期.',
           order: 2,
@@ -344,6 +409,7 @@ async function seedDatabase(database: EasyDoDatabase): Promise<void> {
           reminderMinutes: null,
           reminders: [],
           seriesId: null,
+          sectionId: null,
           subtasks: [],
           tagIds: [],
           timeZone: getLocalTimeZone(),
@@ -531,10 +597,20 @@ export async function deleteCategory(
     throw new Error('替代分类不能与被删除分类相同.');
   }
 
-  await database.transaction('rw', database.categories, database.tasks, async () => {
-    await database.tasks.where('categoryId').equals(id).modify({ categoryId: replacementId });
-    await database.categories.delete(id);
-  });
+  await database.transaction(
+    'rw',
+    database.categories,
+    database.sections,
+    database.tasks,
+    async () => {
+      await database.tasks
+        .where('categoryId')
+        .equals(id)
+        .modify({ categoryId: replacementId, sectionId: null });
+      await database.sections.where('categoryId').equals(id).delete();
+      await database.categories.delete(id);
+    },
+  );
 }
 
 export async function updateTag(
@@ -567,28 +643,48 @@ export async function reorderCategories(
 }
 
 export async function exportBackup(database: EasyDoDatabase = db): Promise<BackupPayload> {
-  const [activities, categories, filters, folders, settings, tags, tasks, templates] =
-    await Promise.all([
-      database.activities.toArray(),
-      database.categories.toArray(),
-      database.filters.toArray(),
-      database.folders.toArray(),
-      database.settings.get('default'),
-      database.tags.toArray(),
-      database.tasks.toArray(),
-      database.templates.toArray(),
-    ]);
-  return {
+  const [
     activities,
     categories,
-    exportedAt: new Date().toISOString(),
+    countdowns,
     filters,
+    focusSessions,
     folders,
-    settings: settings ?? { ...defaultAppSettings },
+    habits,
+    sections,
+    settings,
     tags,
     tasks,
     templates,
-    version: 3,
+  ] = await Promise.all([
+    database.activities.toArray(),
+    database.categories.toArray(),
+    database.countdowns.toArray(),
+    database.filters.toArray(),
+    database.focusSessions.toArray(),
+    database.folders.toArray(),
+    database.habits.toArray(),
+    database.sections.toArray(),
+    database.settings.get('default'),
+    database.tags.toArray(),
+    database.tasks.toArray(),
+    database.templates.toArray(),
+  ]);
+  return {
+    activities,
+    categories,
+    countdowns,
+    exportedAt: new Date().toISOString(),
+    filters,
+    focusSessions,
+    folders,
+    habits,
+    settings: settings ?? { ...defaultAppSettings },
+    sections,
+    tags,
+    tasks,
+    templates,
+    version: 4,
   };
 }
 
@@ -601,8 +697,12 @@ export async function replaceFromBackup(
     [
       database.activities,
       database.categories,
+      database.countdowns,
       database.filters,
+      database.focusSessions,
       database.folders,
+      database.habits,
+      database.sections,
       database.settings,
       database.tags,
       database.tasks,
@@ -612,8 +712,12 @@ export async function replaceFromBackup(
       await Promise.all([
         database.activities.clear(),
         database.categories.clear(),
+        database.countdowns.clear(),
         database.filters.clear(),
+        database.focusSessions.clear(),
         database.folders.clear(),
+        database.habits.clear(),
+        database.sections.clear(),
         database.settings.clear(),
         database.tags.clear(),
         database.tasks.clear(),
@@ -621,8 +725,12 @@ export async function replaceFromBackup(
       ]);
       await database.activities.bulkAdd(payload.activities);
       await database.categories.bulkAdd(payload.categories);
+      await database.countdowns.bulkAdd(payload.countdowns);
       await database.filters.bulkAdd(payload.filters);
+      await database.focusSessions.bulkAdd(payload.focusSessions);
       await database.folders.bulkAdd(payload.folders);
+      await database.habits.bulkAdd(payload.habits);
+      await database.sections.bulkAdd(payload.sections);
       await database.settings.put(payload.settings);
       await database.tags.bulkAdd(payload.tags);
       await database.tasks.bulkAdd(payload.tasks);
@@ -687,4 +795,99 @@ export async function reorderTasks(
   await database.transaction('rw', database.tasks, async () => {
     await Promise.all(orderedIds.map((id, order) => database.tasks.update(id, { order })));
   });
+}
+
+export async function addSection(
+  categoryId: string,
+  name: string,
+  database: EasyDoDatabase = db,
+): Promise<Section> {
+  const section: Section = {
+    categoryId,
+    createdAt: new Date().toISOString(),
+    id: createId('section'),
+    name: name.trim(),
+    order: await database.sections.where('categoryId').equals(categoryId).count(),
+  };
+  await database.sections.add(section);
+  return section;
+}
+
+export async function deleteSection(id: string, database: EasyDoDatabase = db): Promise<void> {
+  await database.transaction('rw', database.sections, database.tasks, async () => {
+    await database.tasks.where('sectionId').equals(id).modify({ sectionId: null });
+    await database.sections.delete(id);
+  });
+}
+
+export async function addHabit(
+  name: string,
+  color = '#3fa27c',
+  database: EasyDoDatabase = db,
+): Promise<Habit> {
+  const habit: Habit = {
+    archivedAt: null,
+    color,
+    createdAt: new Date().toISOString(),
+    frequency: 'daily',
+    id: createId('habit'),
+    logs: [],
+    name: name.trim(),
+    target: 1,
+    weekDays: [],
+  };
+  await database.habits.add(habit);
+  return habit;
+}
+
+export async function toggleHabitLog(
+  id: string,
+  dateKey: string,
+  database: EasyDoDatabase = db,
+): Promise<void> {
+  const habit = await database.habits.get(id);
+  if (!habit) return;
+  await database.habits.update(id, {
+    logs: habit.logs.includes(dateKey)
+      ? habit.logs.filter((item) => item !== dateKey)
+      : [...habit.logs, dateKey],
+  });
+}
+
+export async function deleteHabit(id: string, database: EasyDoDatabase = db): Promise<void> {
+  await database.habits.delete(id);
+}
+
+export async function addFocusSession(
+  session: Omit<FocusSession, 'createdAt' | 'id'>,
+  database: EasyDoDatabase = db,
+): Promise<FocusSession> {
+  const record: FocusSession = {
+    ...session,
+    createdAt: new Date().toISOString(),
+    id: createId('focus'),
+  };
+  await database.focusSessions.add(record);
+  return record;
+}
+
+export async function addCountdown(
+  title: string,
+  date: string,
+  database: EasyDoDatabase = db,
+): Promise<Countdown> {
+  const countdown: Countdown = {
+    color: '#d65f78',
+    createdAt: new Date().toISOString(),
+    date,
+    id: createId('countdown'),
+    repeatYearly: false,
+    title: title.trim(),
+  };
+  await database.countdowns.add(countdown);
+  return countdown;
+}
+
+export async function deleteCountdown(id: string, database: EasyDoDatabase = db): Promise<void> {
+  await database.countdowns.delete(id);
 }

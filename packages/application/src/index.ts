@@ -17,6 +17,7 @@ import {
   createReminder,
   createSubtask,
   defaultAppSettings,
+  defaultFilterCriteria,
   getLocalTimeZone,
   isBackupPayload,
 } from '@easydo/domain';
@@ -120,8 +121,14 @@ export class TaskApplicationService {
       return { advanced: false, taskId: id };
     }
 
+    const recurrenceBase =
+      task.recurrence?.basis === 'completion'
+        ? dateKeyInTimeZone(new Date(), task.timeZone)
+        : task.dueDate;
     const nextDate =
-      task.dueDate && task.recurrence ? nextRecurrenceDate(task.dueDate, task.recurrence) : null;
+      recurrenceBase && task.recurrence
+        ? nextRecurrenceDate(recurrenceBase, task.recurrence)
+        : null;
 
     if (!nextDate) {
       await this.repository.update(id, { completedAt: now, updatedAt: now });
@@ -205,12 +212,14 @@ export class TaskApplicationService {
     return this.createWithAction(
       {
         allDay: task.allDay,
+        attachments: task.attachments,
         categoryId: task.categoryId,
         dueDate: task.dueDate,
         dueTime: task.dueTime,
         duration: task.duration,
         endDate: task.endDate,
         endTime: task.endTime,
+        important: task.important,
         kind: task.kind,
         notes: task.notes,
         parentId: task.parentId,
@@ -218,6 +227,7 @@ export class TaskApplicationService {
         recurrence: task.recurrence,
         reminderMinutes: task.reminderMinutes,
         reminders: task.reminders.map((reminder) => ({ ...reminder, id: createId('reminder') })),
+        sectionId: task.sectionId,
         subtasks: task.subtasks.map((subtask) => ({
           ...subtask,
           completedAt: null,
@@ -270,12 +280,14 @@ export class TaskApplicationService {
       await this.createWithAction(
         {
           allDay: task.allDay,
+          attachments: task.attachments,
           categoryId: task.categoryId,
           dueDate: nextDate,
           dueTime: task.dueTime,
           duration: task.duration,
           endDate: shiftEndDate(task.dueDate, task.endDate, nextDate),
           endTime: task.endTime,
+          important: task.important,
           kind: task.kind,
           notes: task.notes,
           parentId: task.parentId,
@@ -283,6 +295,7 @@ export class TaskApplicationService {
           recurrence: task.recurrence,
           reminderMinutes: task.reminderMinutes,
           reminders: task.reminders,
+          sectionId: task.sectionId,
           subtasks: task.subtasks.map((subtask) => ({ ...subtask, completedAt: null })),
           tagIds: task.tagIds,
           timeZone: task.timeZone,
@@ -418,12 +431,27 @@ function calculateNextRecurrence(current: Date, rule: RecurrenceRule): Date {
     next = addMonths(current, rule.interval);
     if (rule.monthMode === 'lastDay') {
       next.setDate(getDaysInMonth(next));
+    } else if (rule.monthMode === 'weekDay' && rule.monthWeek) {
+      next = getMonthlyWeekDay(next, rule.monthWeek.week, rule.monthWeek.weekDay);
     }
   } else {
     next = addYears(current, rule.interval);
   }
 
   return next;
+}
+
+function getMonthlyWeekDay(month: Date, week: number, weekDay: number): Date {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  if (week === -1) {
+    const last = new Date(year, monthIndex, getDaysInMonth(month), 12);
+    last.setDate(last.getDate() - ((last.getDay() - weekDay + 7) % 7));
+    return last;
+  }
+  const first = new Date(year, monthIndex, 1, 12);
+  const offset = (weekDay - first.getDay() + 7) % 7;
+  return new Date(year, monthIndex, 1 + offset + (week - 1) * 7, 12);
 }
 
 function findNextWeeklyDate(current: Date, rule: RecurrenceRule): Date {
@@ -468,13 +496,253 @@ export function getPendingReminderEvents(
         reminder.reference === 'end' && task.endTime ? task.endTime : task.dueTime;
       const referenceDate =
         reminder.reference === 'end' ? (task.endDate ?? task.dueDate) : task.dueDate;
-      const scheduledAt = parseISO(`${referenceDate}T${referenceTime}:00`).getTime();
+      const scheduledAt = zonedDateTimeToDate(
+        referenceDate!,
+        referenceTime!,
+        task.timeZone,
+      ).getTime();
       const remindAt = scheduledAt - reminder.offsetMinutes * 60_000;
       return nowTime >= remindAt && nowTime <= scheduledAt + 300_000
         ? [{ key, reminder, task }]
         : [];
     });
   });
+}
+
+export function zonedDateTimeToDate(dateKey: string, time: string, timeZone: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const desired = Date.UTC(year!, month! - 1, day!, hour!, minute!);
+  let result = desired;
+  const zone = isSupportedTimeZone(timeZone) ? timeZone : getLocalTimeZone();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      day: '2-digit',
+      hour: '2-digit',
+      hourCycle: 'h23',
+      minute: '2-digit',
+      month: '2-digit',
+      timeZone: zone,
+      year: 'numeric',
+    }).formatToParts(new Date(result));
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((part) => part.type === type)?.value);
+    const represented = Date.UTC(
+      value('year'),
+      value('month') - 1,
+      value('day'),
+      value('hour'),
+      value('minute'),
+    );
+    result += desired - represented;
+  }
+  return new Date(result);
+}
+
+function dateKeyInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: isSupportedTimeZone(timeZone) ? timeZone : getLocalTimeZone(),
+    year: 'numeric',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function isSupportedTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function formatTaskTimeInZone(task: Task, targetTimeZone: string): string | null {
+  if (!task.dueDate || !task.dueTime) return null;
+  const instant = zonedDateTimeToDate(task.dueDate, task.dueTime, task.timeZone);
+  return new Intl.DateTimeFormat('zh-CN', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: '2-digit',
+    timeZone: targetTimeZone,
+  }).format(instant);
+}
+
+export function exportTasksToIcs(tasks: readonly Task[]): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//EasyDo//Calendar 1.4//ZH-CN',
+    'CALSCALE:GREGORIAN',
+  ];
+  for (const task of tasks) {
+    if (!task.dueDate || task.deletedAt) continue;
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${task.id}@easydo.local`,
+      `DTSTAMP:${toIcsUtc(new Date(task.updatedAt))}`,
+    );
+    if (task.allDay || !task.dueTime) {
+      lines.push(`DTSTART;VALUE=DATE:${task.dueDate.replaceAll('-', '')}`);
+    } else {
+      lines.push(
+        `DTSTART;TZID=${task.timeZone}:${task.dueDate.replaceAll('-', '')}T${task.dueTime.replace(':', '')}00`,
+      );
+    }
+    if (task.endDate && task.allDay)
+      lines.push(`DTEND;VALUE=DATE:${format(addDays(parseISO(task.endDate), 1), 'yyyyMMdd')}`);
+    else if (task.endTime)
+      lines.push(
+        `DTEND;TZID=${task.timeZone}:${(task.endDate ?? task.dueDate).replaceAll('-', '')}T${task.endTime.replace(':', '')}00`,
+      );
+    lines.push(`SUMMARY:${escapeIcs(task.title)}`);
+    if (task.notes) lines.push(`DESCRIPTION:${escapeIcs(task.notes)}`);
+    lines.push(
+      `X-EASYDO-CATEGORY:${task.categoryId}`,
+      `X-EASYDO-PRIORITY:${task.priority}`,
+      `X-EASYDO-IMPORTANT:${task.important ? 'TRUE' : 'FALSE'}`,
+    );
+    if (task.recurrence)
+      lines.push(
+        `RRULE:${toIcsRecurrence(task.recurrence)}`,
+        `X-EASYDO-BASIS:${task.recurrence.basis}`,
+      );
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+export function parseIcs(text: string, defaultCategoryId: string): TaskDraft[] {
+  const unfolded = text.replace(/\r?\n[ \t]/g, '');
+  const blocks = [...unfolded.matchAll(/BEGIN:VEVENT\r?\n([\s\S]*?)\r?\nEND:VEVENT/g)].map(
+    (match) => match[1] ?? '',
+  );
+  return blocks.flatMap((block) => {
+    const lines = block.split(/\r?\n/);
+    const find = (name: string) => lines.find((line) => line.startsWith(name));
+    const startLine = find('DTSTART');
+    const summaryLine = find('SUMMARY:');
+    if (!startLine || !summaryLine) return [];
+    const startValue = startLine.slice(startLine.indexOf(':') + 1);
+    const allDay = startLine.includes('VALUE=DATE') || !startValue.includes('T');
+    const timeZone = startLine.match(/TZID=([^;:]+)/)?.[1] ?? getLocalTimeZone();
+    const dueDate = fromIcsDate(startValue.slice(0, 8));
+    const dueTime = allDay ? null : `${startValue.slice(9, 11)}:${startValue.slice(11, 13)}`;
+    const endLine = find('DTEND');
+    const endValue = endLine?.slice(endLine.indexOf(':') + 1);
+    const recurrence = parseIcsRecurrence(
+      find('RRULE:')?.slice(6),
+      find('X-EASYDO-BASIS:')?.slice(15),
+    );
+    const priority = find('X-EASYDO-PRIORITY:')?.slice(18) as TaskDraft['priority'] | undefined;
+    return [
+      {
+        allDay,
+        attachments: [],
+        categoryId: find('X-EASYDO-CATEGORY:')?.slice(18) || defaultCategoryId,
+        dueDate,
+        dueTime,
+        duration: 30,
+        endDate: endValue
+          ? allDay
+            ? format(addDays(parseISO(fromIcsDate(endValue.slice(0, 8))), -1), 'yyyy-MM-dd')
+            : fromIcsDate(endValue.slice(0, 8))
+          : null,
+        endTime: endValue?.includes('T')
+          ? `${endValue.slice(9, 11)}:${endValue.slice(11, 13)}`
+          : null,
+        important: find('X-EASYDO-IMPORTANT:')?.endsWith('TRUE') ?? false,
+        kind: 'event',
+        notes: unescapeIcs(find('DESCRIPTION:')?.slice(12) ?? ''),
+        parentId: null,
+        priority: ['none', 'low', 'medium', 'high'].includes(priority ?? '') ? priority! : 'none',
+        recurrence,
+        reminderMinutes: null,
+        reminders: [],
+        sectionId: null,
+        subtasks: [],
+        tagIds: [],
+        timeZone,
+        title: unescapeIcs(summaryLine.slice(8)),
+      },
+    ];
+  });
+}
+
+function toIcsUtc(date: Date): string {
+  return date
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+}
+
+function toIcsRecurrence(rule: RecurrenceRule): string {
+  const frequencies: Record<RecurrenceRule['frequency'], string> = {
+    daily: 'DAILY',
+    monthly: 'MONTHLY',
+    weekdays: 'WEEKLY',
+    weekly: 'WEEKLY',
+    yearly: 'YEARLY',
+  };
+  const parts = [`FREQ=${frequencies[rule.frequency]}`, `INTERVAL=${rule.interval}`];
+  const days = rule.frequency === 'weekdays' ? [1, 2, 3, 4, 5] : rule.weekDays;
+  if (days.length)
+    parts.push(
+      `BYDAY=${days.map((day) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][day]).join(',')}`,
+    );
+  if (rule.endsOn) parts.push(`UNTIL=${rule.endsOn.replaceAll('-', '')}`);
+  if (rule.endAfterOccurrences) parts.push(`COUNT=${rule.endAfterOccurrences}`);
+  return parts.join(';');
+}
+
+function parseIcsRecurrence(value?: string, basis?: string): RecurrenceRule | null {
+  if (!value) return null;
+  const parts = Object.fromEntries(value.split(';').map((part) => part.split('=', 2))) as Record<
+    string,
+    string
+  >;
+  const frequencies: Record<string, RecurrenceRule['frequency']> = {
+    DAILY: 'daily',
+    MONTHLY: 'monthly',
+    WEEKLY: 'weekly',
+    YEARLY: 'yearly',
+  };
+  const frequency = frequencies[parts.FREQ ?? ''];
+  if (!frequency) return null;
+  const rule = createRecurrenceRule(frequency);
+  rule.basis = basis === 'completion' ? 'completion' : 'scheduled';
+  rule.interval = Math.max(1, Number(parts.INTERVAL ?? 1));
+  rule.endAfterOccurrences = parts.COUNT ? Number(parts.COUNT) : null;
+  rule.endsOn = parts.UNTIL ? fromIcsDate(parts.UNTIL.slice(0, 8)) : null;
+  if (parts.BYDAY) {
+    const dayMap: Record<string, number> = { FR: 5, MO: 1, SA: 6, SU: 0, TH: 4, TU: 2, WE: 3 };
+    rule.weekDays = parts.BYDAY.split(',').flatMap((day) =>
+      dayMap[day] === undefined ? [] : [dayMap[day]],
+    );
+    if (rule.weekDays.join(',') === '1,2,3,4,5') rule.frequency = 'weekdays';
+  }
+  return rule;
+}
+
+function fromIcsDate(value: string): string {
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+function escapeIcs(value: string): string {
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('\n', '\\n')
+    .replaceAll(',', '\\,')
+    .replaceAll(';', '\\;');
+}
+
+function unescapeIcs(value: string): string {
+  return value.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
 }
 
 export function getPendingReminders(
@@ -633,17 +901,44 @@ export function parseBackup(text: string): BackupPayload {
       normalizeBackupTask(task, order, categories[0]?.id ?? ''),
     );
     const folders = Array.isArray(candidate.folders) ? (candidate.folders as Folder[]) : [];
+    const filters = Array.isArray(candidate.filters)
+      ? (candidate.filters as BackupPayload['filters']).map((filter) => ({
+          ...filter,
+          criteria: { ...defaultFilterCriteria, ...filter.criteria },
+        }))
+      : [];
+    const templates = Array.isArray(candidate.templates)
+      ? (candidate.templates as BackupPayload['templates']).map((template) => ({
+          ...template,
+          draft: normalizeBackupDraft(template.draft, categories[0]?.id ?? ''),
+        }))
+      : [];
+    const activities = Array.isArray(candidate.activities)
+      ? (candidate.activities as BackupPayload['activities']).map((activity) => ({
+          ...activity,
+          after: activity.after
+            ? normalizeBackupTask(activity.after, activity.after.order, categories[0]?.id ?? '')
+            : null,
+          before: activity.before
+            ? normalizeBackupTask(activity.before, activity.before.order, categories[0]?.id ?? '')
+            : null,
+        }))
+      : [];
     const normalized: BackupPayload = {
-      activities: [],
+      activities,
       categories,
+      countdowns: [],
       exportedAt: String(candidate.exportedAt),
-      filters: [],
+      filters,
+      focusSessions: [],
       folders,
+      habits: [],
       settings: { ...defaultAppSettings, ...(candidate.settings as object | undefined) },
+      sections: [],
       tags: candidate.tags as BackupPayload['tags'],
       tasks,
-      templates: [],
-      version: 3,
+      templates,
+      version: 4,
     };
     if (isBackupPayload(normalized)) return normalized;
   }
@@ -651,11 +946,52 @@ export function parseBackup(text: string): BackupPayload {
   throw new Error('备份文件格式不正确.');
 }
 
+function normalizeBackupDraft(draft: Partial<TaskDraft>, categoryId: string): TaskDraft {
+  const task = normalizeBackupTask(
+    {
+      ...draft,
+      categoryId: draft.categoryId ?? categoryId,
+      completedAt: null,
+      createdAt: new Date().toISOString(),
+      deletedAt: null,
+      id: createId('task'),
+      order: 0,
+      seriesId: null,
+      updatedAt: new Date().toISOString(),
+    },
+    0,
+    categoryId,
+  );
+  return {
+    allDay: task.allDay,
+    attachments: task.attachments,
+    categoryId: task.categoryId,
+    dueDate: task.dueDate,
+    dueTime: task.dueTime,
+    duration: task.duration,
+    endDate: task.endDate,
+    endTime: task.endTime,
+    important: task.important,
+    kind: task.kind,
+    notes: task.notes,
+    parentId: task.parentId,
+    priority: task.priority,
+    recurrence: task.recurrence,
+    reminderMinutes: task.reminderMinutes,
+    reminders: task.reminders,
+    sectionId: task.sectionId,
+    subtasks: task.subtasks,
+    tagIds: task.tagIds,
+    timeZone: task.timeZone,
+    title: task.title,
+  };
+}
+
 function isLegacyBackup(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Record<string, unknown>;
   return (
-    (candidate.version === 1 || candidate.version === 2) &&
+    (candidate.version === 1 || candidate.version === 2 || candidate.version === 3) &&
     typeof candidate.exportedAt === 'string' &&
     Array.isArray(candidate.categories) &&
     Array.isArray(candidate.tags) &&
@@ -680,6 +1016,7 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
   const duration = task.duration ?? 30;
   const reminderMinutes = task.reminderMinutes ?? null;
   return {
+    attachments: task.attachments ?? [],
     allDay: task.allDay ?? !dueTime,
     categoryId: task.categoryId ?? categoryId,
     completedAt: task.completedAt ?? null,
@@ -695,6 +1032,7 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
         ? format(addMinutes(parseISO(`2000-01-01T${dueTime}:00`), duration), 'HH:mm')
         : null),
     id: task.id ?? createId('task'),
+    important: task.important ?? task.priority === 'high',
     kind: task.kind ?? 'task',
     notes: task.notes ?? '',
     order: task.order ?? order,
@@ -711,6 +1049,7 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
     reminders:
       task.reminders ?? (reminderMinutes === null ? [] : [createReminder(reminderMinutes)]),
     seriesId: task.seriesId ?? (task.recurrence ? createId('series') : null),
+    sectionId: task.sectionId ?? null,
     subtasks: (task.subtasks ?? []).map((subtask) => ({
       ...createSubtask(subtask.title),
       ...subtask,

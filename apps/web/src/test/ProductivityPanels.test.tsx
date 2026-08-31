@@ -1,11 +1,12 @@
 import type { Category, FilterCriteria, Tag, Task } from '@easydo/domain';
-import { defaultFilterCriteria, getLocalTimeZone } from '@easydo/domain';
+import { defaultAppSettings, defaultFilterCriteria, getLocalTimeZone } from '@easydo/domain';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import { FilterPanel } from '../components/FilterPanel';
 import { QuickEditPanel } from '../components/QuickEditPanel';
+import { ProductivityHub } from '../components/ProductivityHub';
 
 const category: Category = {
   color: '#655fd7',
@@ -24,6 +25,7 @@ const tag: Tag = {
 };
 
 const task: Task = {
+  attachments: [],
   allDay: false,
   categoryId: category.id,
   completedAt: null,
@@ -35,6 +37,7 @@ const task: Task = {
   endDate: null,
   endTime: '10:00',
   id: 'task-1',
+  important: false,
   kind: 'task',
   notes: '',
   order: 0,
@@ -44,6 +47,7 @@ const task: Task = {
   reminderMinutes: null,
   reminders: [],
   seriesId: null,
+  sectionId: null,
   subtasks: [],
   tagIds: [tag.id],
   timeZone: getLocalTimeZone(),
@@ -52,6 +56,40 @@ const task: Task = {
 };
 
 describe('效率面板', () => {
+  it('在效率工作台切换视图并创建习惯', async () => {
+    const user = userEvent.setup();
+    const onAddHabit = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, 'prompt').mockReturnValue('晨间阅读');
+    render(
+      <ProductivityHub
+        categories={[category]}
+        countdowns={[]}
+        focusSessions={[]}
+        habits={[]}
+        onAddCountdown={vi.fn()}
+        onAddFocusSession={vi.fn()}
+        onAddHabit={onAddHabit}
+        onAddSection={vi.fn()}
+        onDeleteCountdown={vi.fn()}
+        onDeleteHabit={vi.fn()}
+        onDeleteSection={vi.fn()}
+        onEdit={vi.fn()}
+        onToggleHabit={vi.fn()}
+        onUpdateTask={vi.fn()}
+        sections={[]}
+        settings={{ ...defaultAppSettings }}
+        tasks={[task]}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '任务看板' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '习惯' }));
+    await user.click(screen.getByRole('button', { name: '新建习惯' }));
+    expect(onAddHabit).toHaveBeenCalledWith('晨间阅读');
+    await user.click(screen.getByRole('button', { name: '统计' }));
+    expect(screen.getByRole('heading', { name: '效率统计' })).toBeInTheDocument();
+  });
+
   it('组合筛选条件并保存智能清单', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
