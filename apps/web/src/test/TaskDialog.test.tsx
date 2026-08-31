@@ -53,4 +53,39 @@ describe('任务编辑对话框', () => {
       undefined,
     );
   });
+
+  it('创建重复任务, 提醒和子任务', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TaskDialog
+        categories={categories}
+        defaultDate="2026-08-31"
+        defaultTime="09:30"
+        onClose={() => undefined}
+        onDelete={async () => undefined}
+        onSave={onSave}
+        open
+        tags={tags}
+        task={null}
+      />,
+    );
+
+    await user.type(screen.getByLabelText('任务标题'), '每日复盘');
+    await user.selectOptions(screen.getByLabelText(/重复/), 'daily');
+    await user.selectOptions(screen.getByLabelText('提醒'), '10');
+    await user.click(screen.getByRole('button', { name: '添加子任务' }));
+    await user.type(screen.getByLabelText('子任务 1'), '记录成果');
+    await user.click(screen.getByRole('button', { name: '创建任务' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dueTime: '09:30',
+        recurrence: expect.objectContaining({ frequency: 'daily' }),
+        reminderMinutes: 10,
+        subtasks: [expect.objectContaining({ title: '记录成果' })],
+      }),
+      undefined,
+    );
+  });
 });

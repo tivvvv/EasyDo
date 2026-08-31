@@ -1,11 +1,12 @@
 import type { Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
-import { priorityLabels } from '@easydo/domain';
-import { CalendarDays, Clock3, Flag, Trash2, X } from 'lucide-react';
+import { createId, priorityLabels } from '@easydo/domain';
+import { CalendarDays, Check, Clock3, Flag, Plus, Repeat2, Trash2, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 
 type TaskDialogProps = {
   categories: Category[];
   defaultDate: string | null;
+  defaultTime?: string | null;
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
   onSave: (draft: TaskDraft, id?: string) => Promise<void>;
@@ -21,6 +22,9 @@ const emptyDraft: TaskDraft = {
   duration: 30,
   notes: '',
   priority: 'none',
+  recurrence: null,
+  reminderMinutes: null,
+  subtasks: [],
   tagIds: [],
   title: '',
 };
@@ -28,6 +32,7 @@ const emptyDraft: TaskDraft = {
 export function TaskDialog({
   categories,
   defaultDate,
+  defaultTime = null,
   onClose,
   onDelete,
   onSave,
@@ -45,10 +50,18 @@ export function TaskDialog({
           duration: task.duration,
           notes: task.notes,
           priority: task.priority,
+          recurrence: task.recurrence,
+          reminderMinutes: task.reminderMinutes,
+          subtasks: task.subtasks,
           tagIds: task.tagIds,
           title: task.title,
         }
-      : { ...emptyDraft, categoryId: categories[0]?.id ?? '', dueDate: defaultDate },
+      : {
+          ...emptyDraft,
+          categoryId: categories[0]?.id ?? '',
+          dueDate: defaultDate,
+          dueTime: defaultDate ? defaultTime : null,
+        },
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -79,7 +92,14 @@ export function TaskDialog({
 
     setSaving(true);
     try {
-      await onSave({ ...draft, title: draft.title.trim() }, task?.id);
+      await onSave(
+        {
+          ...draft,
+          subtasks: draft.subtasks.filter((subtask) => subtask.title.trim()),
+          title: draft.title.trim(),
+        },
+        task?.id,
+      );
       onClose();
     } finally {
       setSaving(false);
@@ -180,7 +200,209 @@ export function TaskDialog({
                 ))}
               </select>
             </label>
+            <label className="field">
+              <span>
+                <Repeat2 size={14} />
+                重复
+              </span>
+              <select
+                disabled={!draft.dueDate}
+                onChange={(event) => {
+                  const frequency = event.target.value;
+                  setDraft({
+                    ...draft,
+                    recurrence: frequency
+                      ? {
+                          endsOn: null,
+                          frequency: frequency as NonNullable<TaskDraft['recurrence']>['frequency'],
+                          interval: 1,
+                          weekDays:
+                            frequency === 'weekly' && draft.dueDate
+                              ? [new Date(`${draft.dueDate}T12:00:00`).getDay()]
+                              : [],
+                        }
+                      : null,
+                  });
+                }}
+                value={draft.recurrence?.frequency ?? ''}
+              >
+                <option value="">不重复</option>
+                <option value="daily">每天</option>
+                <option value="weekdays">每个工作日</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+                <option value="yearly">每年</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>提醒</span>
+              <select
+                disabled={!draft.dueDate || !draft.dueTime}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    reminderMinutes: event.target.value ? Number(event.target.value) : null,
+                  })
+                }
+                value={draft.reminderMinutes ?? ''}
+              >
+                <option value="">不提醒</option>
+                <option value="0">任务开始时</option>
+                <option value="5">提前 5 分钟</option>
+                <option value="10">提前 10 分钟</option>
+                <option value="30">提前 30 分钟</option>
+                <option value="60">提前 1 小时</option>
+                <option value="1440">提前 1 天</option>
+              </select>
+            </label>
           </div>
+
+          {draft.recurrence && (
+            <div className="recurrence-options">
+              <label className="field">
+                <span>重复间隔</span>
+                <input
+                  max={99}
+                  min={1}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      recurrence: draft.recurrence
+                        ? {
+                            ...draft.recurrence,
+                            interval: Math.max(1, Number(event.target.value)),
+                          }
+                        : null,
+                    })
+                  }
+                  type="number"
+                  value={draft.recurrence.interval}
+                />
+              </label>
+              <label className="field">
+                <span>结束日期</span>
+                <input
+                  min={draft.dueDate ?? undefined}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      recurrence: draft.recurrence
+                        ? { ...draft.recurrence, endsOn: event.target.value || null }
+                        : null,
+                    })
+                  }
+                  type="date"
+                  value={draft.recurrence.endsOn ?? ''}
+                />
+              </label>
+            </div>
+          )}
+
+          {draft.recurrence?.frequency === 'weekly' && (
+            <fieldset className="choice-field">
+              <legend>每周重复日期</legend>
+              <div className="weekday-choices">
+                {['日', '一', '二', '三', '四', '五', '六'].map((label, day) => {
+                  const selected = draft.recurrence?.weekDays.includes(day) ?? false;
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={selected ? 'selected' : ''}
+                      key={label}
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          recurrence: draft.recurrence
+                            ? {
+                                ...draft.recurrence,
+                                weekDays: selected
+                                  ? draft.recurrence.weekDays.filter((weekDay) => weekDay !== day)
+                                  : [...draft.recurrence.weekDays, day],
+                              }
+                            : null,
+                        })
+                      }
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
+
+          <fieldset className="choice-field subtask-field">
+            <legend>子任务</legend>
+            <div className="subtask-editor">
+              {draft.subtasks.map((subtask, index) => (
+                <div className="subtask-edit-row" key={subtask.id}>
+                  <button
+                    aria-label={`${subtask.completedAt ? '恢复' : '完成'}子任务 ${index + 1}`}
+                    className={`subtask-check${subtask.completedAt ? ' checked' : ''}`}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        subtasks: draft.subtasks.map((item) =>
+                          item.id === subtask.id
+                            ? {
+                                ...item,
+                                completedAt: item.completedAt ? null : new Date().toISOString(),
+                              }
+                            : item,
+                        ),
+                      })
+                    }
+                    type="button"
+                  >
+                    {subtask.completedAt && <Check size={12} />}
+                  </button>
+                  <input
+                    aria-label={`子任务 ${index + 1}`}
+                    maxLength={100}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        subtasks: draft.subtasks.map((item) =>
+                          item.id === subtask.id ? { ...item, title: event.target.value } : item,
+                        ),
+                      })
+                    }
+                    placeholder="输入子任务"
+                    value={subtask.title}
+                  />
+                  <button
+                    aria-label={`删除子任务 ${index + 1}`}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        subtasks: draft.subtasks.filter((item) => item.id !== subtask.id),
+                      })
+                    }
+                    type="button"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+              <button
+                className="add-subtask"
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    subtasks: [
+                      ...draft.subtasks,
+                      { completedAt: null, id: createId('subtask'), title: '' },
+                    ],
+                  })
+                }
+                type="button"
+              >
+                <Plus size={15} />
+                添加子任务
+              </button>
+            </div>
+          </fieldset>
 
           <fieldset className="choice-field">
             <legend>

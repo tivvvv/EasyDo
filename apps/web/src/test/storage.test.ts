@@ -3,9 +3,18 @@ import {
   addCategory,
   addTag,
   addTask,
+  deleteCategory,
+  deleteTag,
   deleteTask,
+  DexieTaskRepository,
+  emptyTrash,
+  exportBackup,
   initializeDatabase,
+  replaceFromBackup,
+  reorderCategories,
   toggleTask,
+  updateCategory,
+  updateTag,
   updateTask,
 } from '@easydo/storage';
 
@@ -28,6 +37,19 @@ describe('本地数据仓库', () => {
     expect(await database.tasks.count()).toBe(3);
   });
 
+  it('已有分类时不重复写入引导数据', async () => {
+    await database.categories.add({
+      color: '#ffffff',
+      createdAt: '2026-08-31T00:00:00.000Z',
+      id: 'category-only',
+      name: '唯一分类',
+      order: 0,
+    });
+    await initializeDatabase(database);
+    expect(await database.categories.count()).toBe(1);
+    expect(await database.tasks.count()).toBe(0);
+  });
+
   it('完整执行任务的创建, 更新, 完成和删除', async () => {
     await initializeDatabase(database);
     const created = await addTask(
@@ -38,6 +60,9 @@ describe('本地数据仓库', () => {
         duration: 45,
         notes: '测试备注',
         priority: 'high',
+        recurrence: null,
+        reminderMinutes: null,
+        subtasks: [],
         tagIds: ['tag-focus'],
         title: '测试任务',
       },
@@ -63,5 +88,86 @@ describe('本地数据仓库', () => {
 
     expect((await database.categories.get(category.id))?.name).toBe('副业');
     expect((await database.tags.get(tag.id))?.name).toBe('深度工作');
+  });
+
+  it('更新和删除分类时重新分配关联任务', async () => {
+    await initializeDatabase(database);
+    await updateCategory('category-work', { color: '#abcdef', name: '新工作' }, database);
+    expect(await database.categories.get('category-work')).toMatchObject({
+      color: '#abcdef',
+      name: '新工作',
+    });
+
+    await deleteCategory('category-work', 'category-personal', database);
+    expect(await database.categories.get('category-work')).toBeUndefined();
+    expect(await database.tasks.where('categoryId').equals('category-work').count()).toBe(0);
+  });
+
+  it('按指定顺序排列分类', async () => {
+    await initializeDatabase(database);
+    await reorderCategories(['category-study', 'category-personal', 'category-work'], database);
+    expect((await database.categories.orderBy('order').toArray()).map((item) => item.id)).toEqual([
+      'category-study',
+      'category-personal',
+      'category-work',
+    ]);
+  });
+
+  it('拒绝将分类迁移到自身', async () => {
+    await initializeDatabase(database);
+    await expect(deleteCategory('category-work', 'category-work', database)).rejects.toThrow(
+      '替代分类不能与被删除分类相同.',
+    );
+  });
+
+  it('通过仓库适配器执行任务读写', async () => {
+    await initializeDatabase(database);
+    const repository = new DexieTaskRepository(database);
+    const task = (await database.tasks.toArray())[0]!;
+    await repository.update(task.id, { title: '仓库更新任务' });
+    expect((await repository.get(task.id))?.title).toBe('仓库更新任务');
+    const copy = { ...task, id: `task-${crypto.randomUUID()}`, title: '仓库新增任务' };
+    await repository.add(copy);
+    expect(await repository.get(copy.id)).toBeDefined();
+    await repository.delete(copy.id);
+    expect(await repository.get(copy.id)).toBeUndefined();
+  });
+
+  it('更新和删除标签时清理任务关联', async () => {
+    await initializeDatabase(database);
+    await updateTag('tag-focus', { color: '#abcdef', name: '新专注' }, database);
+    expect(await database.tags.get('tag-focus')).toMatchObject({
+      color: '#abcdef',
+      name: '新专注',
+    });
+
+    await deleteTag('tag-focus', database);
+    expect(await database.tags.get('tag-focus')).toBeUndefined();
+    expect(
+      (await database.tasks.toArray()).every((task) => !task.tagIds.includes('tag-focus')),
+    ).toBe(true);
+  });
+
+  it('导出并恢复完整备份', async () => {
+    await initializeDatabase(database);
+    const backup = await exportBackup(database);
+    await database.tasks.clear();
+    await replaceFromBackup(backup, database);
+
+    expect(await database.tasks.count()).toBe(backup.tasks.length);
+    expect(await database.categories.count()).toBe(backup.categories.length);
+    expect(await database.tags.count()).toBe(backup.tags.length);
+  });
+
+  it('仅永久清理回收站任务', async () => {
+    await initializeDatabase(database);
+    const [first, second] = await database.tasks.toArray();
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    await database.tasks.update(first!.id, { deletedAt: new Date().toISOString() });
+
+    expect(await emptyTrash(database)).toBe(1);
+    expect(await database.tasks.get(first!.id)).toBeUndefined();
+    expect(await database.tasks.get(second!.id)).toBeDefined();
   });
 });

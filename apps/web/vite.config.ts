@@ -1,15 +1,19 @@
 import react from '@vitejs/plugin-react';
 import { configDefaults, defineConfig } from 'vitest/config';
 
+const sourcePath = (path: string) => new URL(path, import.meta.url).pathname;
+
 export default defineConfig({
   plugins: [react()],
   test: {
     coverage: {
+      allowExternal: true,
       exclude: ['src/main.tsx', '**/*.test.{ts,tsx}', '**/test/**'],
       include: [
-        'src/lib/**/*.ts',
-        '../../packages/domain/src/**/*.ts',
-        '../../packages/storage/src/**/*.ts',
+        sourcePath('./src/lib/**/*.ts'),
+        sourcePath('../../packages/application/src/**/*.ts'),
+        sourcePath('../../packages/domain/src/**/*.ts'),
+        sourcePath('../../packages/storage/src/**/*.ts'),
       ],
       provider: 'v8',
       reporter: ['text', 'html'],

@@ -35,6 +35,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@easydo/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@easydo/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -94,7 +97,14 @@ importers:
         specifier: 4.1.11
         version: 4.1.11(@vitest/coverage-v8@4.1.11)(jsdom@30.0.1)(vite@8.2.2)
 
-  packages/application: {}
+  packages/application:
+    dependencies:
+      '@easydo/domain':
+        specifier: workspace:*
+        version: link:../domain
+      date-fns:
+        specifier: 4.4.0
+        version: 4.4.0
 
   packages/domain: {}
 

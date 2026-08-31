@@ -1,7 +1,18 @@
 import type { Category, Tag, Task } from '@easydo/domain';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { CalendarDays, Check, CirclePlus, Clock3, Inbox } from 'lucide-react';
+import {
+  CalendarDays,
+  Check,
+  CirclePlus,
+  Clock3,
+  Copy,
+  Inbox,
+  Repeat2,
+  Trash2,
+} from 'lucide-react';
+import { useState } from 'react';
+import { taskProgress } from '@easydo/domain';
 
 import { fromDateKey } from '../lib/calendar';
 
@@ -9,7 +20,9 @@ type TaskListProps = {
   categories: Category[];
   emptyTitle: string;
   onAdd: () => void;
+  onDuplicate: (taskId: string) => Promise<void>;
   onEdit: (task: Task) => void;
+  onTrash: (taskId: string) => Promise<void>;
   onToggle: (taskId: string) => Promise<void>;
   tags: Tag[];
   tasks: Task[];
@@ -20,7 +33,9 @@ export function TaskList({
   categories,
   emptyTitle,
   onAdd,
+  onDuplicate,
   onEdit,
+  onTrash,
   onToggle,
   tags,
   tasks,
@@ -30,6 +45,19 @@ export function TaskList({
   const tagMap = new Map(tags.map((tag) => [tag.id, tag]));
   const active = tasks.filter((task) => !task.completedAt);
   const completed = tasks.filter((task) => task.completedAt);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const visibleSelectedIds = selectedIds.filter((id) => tasks.some((task) => task.id === id));
+
+  const toggleSelected = (taskId: string) => {
+    setSelectedIds((ids) =>
+      ids.includes(taskId) ? ids.filter((id) => id !== taskId) : [...ids, taskId],
+    );
+  };
+
+  const runBatch = async (action: (taskId: string) => Promise<void>) => {
+    await Promise.all(visibleSelectedIds.map(action));
+    setSelectedIds([]);
+  };
 
   return (
     <section className="list-view">
@@ -51,6 +79,26 @@ export function TaskList({
           <strong>{completed.length}</strong> 已完成
         </span>
       </div>
+      {visibleSelectedIds.length > 0 && (
+        <div className="batch-toolbar" role="toolbar" aria-label="批量操作">
+          <strong>已选择 {visibleSelectedIds.length} 项</strong>
+          <button onClick={() => void runBatch(onToggle)} type="button">
+            <Check size={15} />
+            切换完成
+          </button>
+          <button onClick={() => void runBatch(onDuplicate)} type="button">
+            <Copy size={15} />
+            创建副本
+          </button>
+          <button className="danger" onClick={() => void runBatch(onTrash)} type="button">
+            <Trash2 size={15} />
+            移到回收站
+          </button>
+          <button onClick={() => setSelectedIds([])} type="button">
+            取消
+          </button>
+        </div>
+      )}
       {tasks.length ? (
         <div className="task-list">
           {active.map((task) => (
@@ -58,7 +106,9 @@ export function TaskList({
               category={categoryMap.get(task.categoryId)}
               key={task.id}
               onEdit={onEdit}
+              onSelect={toggleSelected}
               onToggle={onToggle}
+              selected={selectedIds.includes(task.id)}
               tagMap={tagMap}
               task={task}
             />
@@ -71,7 +121,9 @@ export function TaskList({
                   category={categoryMap.get(task.categoryId)}
                   key={task.id}
                   onEdit={onEdit}
+                  onSelect={toggleSelected}
                   onToggle={onToggle}
+                  selected={selectedIds.includes(task.id)}
                   tagMap={tagMap}
                   task={task}
                 />
@@ -97,14 +149,26 @@ export function TaskList({
 type TaskRowProps = {
   category?: Category;
   onEdit: (task: Task) => void;
+  onSelect: (taskId: string) => void;
   onToggle: (taskId: string) => Promise<void>;
+  selected: boolean;
   tagMap: Map<string, Tag>;
   task: Task;
 };
 
-function TaskRow({ category, onEdit, onToggle, tagMap, task }: TaskRowProps) {
+function TaskRow({ category, onEdit, onSelect, onToggle, selected, tagMap, task }: TaskRowProps) {
+  const progress = taskProgress(task);
   return (
-    <article className={`task-row ${task.priority}${task.completedAt ? ' completed' : ''}`}>
+    <article
+      className={`task-row ${task.priority}${task.completedAt ? ' completed' : ''}${selected ? ' selected' : ''}`}
+    >
+      <input
+        aria-label={`选择 ${task.title}`}
+        checked={selected}
+        className="task-select"
+        onChange={() => onSelect(task.id)}
+        type="checkbox"
+      />
       <button
         aria-label={`${task.completedAt ? '恢复' : '完成'} ${task.title}`}
         className="task-check"
@@ -126,6 +190,18 @@ function TaskRow({ category, onEdit, onToggle, tagMap, task }: TaskRowProps) {
             <span>
               <Clock3 size={12} />
               {task.dueTime}
+            </span>
+          )}
+          {task.recurrence && (
+            <span>
+              <Repeat2 size={12} />
+              重复
+            </span>
+          )}
+          {progress.total > 0 && (
+            <span>
+              <Check size={12} />
+              {progress.completed}/{progress.total}
             </span>
           )}
           {category && (
