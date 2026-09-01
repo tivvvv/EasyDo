@@ -1,7 +1,8 @@
 import { TaskApplicationService } from '@easydo/application';
-import { DexieActivityRepository, DexieTaskRepository } from '@easydo/storage';
+
+import { SharedActivityRepository, SharedTaskRepository } from './sharedStorage';
 
 export const taskService = new TaskApplicationService(
-  new DexieTaskRepository(),
-  new DexieActivityRepository(),
+  new SharedTaskRepository(),
+  new SharedActivityRepository(),
 );

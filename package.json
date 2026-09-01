@@ -1,6 +1,6 @@
 {
   "name": "easydo",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "description": "Local-first task management and calendar application.",
   "type": "module",
@@ -10,7 +10,8 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @easydo/web dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "pnpm --filter @easydo/web dev",
     "desktop:build": "pnpm --filter @easydo/desktop build",
     "desktop:build:universal": "pnpm --filter @easydo/desktop build:universal",
     "desktop:check": "pnpm --filter @easydo/desktop check",

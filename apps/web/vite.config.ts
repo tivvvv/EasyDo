@@ -12,7 +12,7 @@ export default defineConfig({
         'src/main.tsx',
         '**/*.test.{ts,tsx}',
         '**/test/**',
-        'src/lib/desktopPersistence.ts',
+        'src/lib/sharedWorkspace.ts',
         'src/lib/notifications.ts',
       ],
       include: [

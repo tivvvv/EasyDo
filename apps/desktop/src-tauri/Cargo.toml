@@ -1,6 +1,7 @@
 [package]
 name = "easydo-desktop"
-version = "1.9.0"
+version = "1.10.0"
+default-run = "easydo-desktop"
 description = "EasyDo local-first task and calendar desktop application."
 authors = ["tivvvv"]
 repository = "https://github.com/tivvvv/EasyDo"
@@ -11,20 +12,40 @@ rust-version = "1.77.2"
 name = "easydo_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "easydo-data-service"
+path = "src/bin/easydo-data-service.rs"
+required-features = ["data-service-bin"]
+
+[features]
+data-service-bin = []
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+axum = "0.8"
+dirs = "6"
+include_dir = "0.7"
+mime_guess = "2"
+open = "5"
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"
+tokio = { version = "1", features = ["net", "rt-multi-thread", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
+time = { version = "0.3", features = ["formatting"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 codegen-units = 1

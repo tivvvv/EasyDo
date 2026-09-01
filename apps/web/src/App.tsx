@@ -17,6 +17,7 @@ import {
   priorityLabels,
   sortTasks,
 } from '@easydo/domain';
+import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
 import { format, isSameDay, startOfDay } from 'date-fns';
 import {
   CalendarDays,
@@ -53,7 +54,6 @@ import {
   addSection,
   addTag,
   addTemplate,
-  db,
   deleteCategory,
   deleteCountdown,
   deleteFolder,
@@ -64,6 +64,7 @@ import {
   deleteTemplate,
   emptyTrash,
   exportBackup,
+  purgeCompletedTasks,
   replaceFromBackup,
   reorderCategories,
   reorderTasks,
@@ -75,8 +76,7 @@ import {
   updateTag,
   toggleHabitLog,
   toggleHabitSkip,
-} from '@easydo/storage';
-import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
+} from './sharedStorage';
 
 import { taskService } from './application';
 import { useAppDialog } from './components/AppDialog';
@@ -90,10 +90,7 @@ import { getLaunchAtStartup, setLaunchAtStartup, useDesktopBridge } from './hook
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { requestReminderPermission, useTaskReminders } from './hooks/useTaskReminders';
 import { toDateKey } from './lib/calendar';
-import {
-  getDesktopPersistenceStatus,
-  type DesktopPersistenceStatus,
-} from './lib/desktopPersistence';
+import { getSharedPersistenceStatus, type SharedPersistenceStatus } from './lib/sharedWorkspace';
 import { isTauriRuntime } from './lib/notifications';
 import {
   getCalendarTitle,
@@ -118,6 +115,7 @@ const today = startOfDay(new Date());
 export function App() {
   const dialog = useAppDialog();
   const data = useWorkspaceData();
+  const [dataStatus, setDataStatus] = useState<SharedPersistenceStatus>(getSharedPersistenceStatus);
   const [view, setView] = useState<View>({ kind: 'calendar' });
   const [calendarMode, setCalendarMode] = useState<CalendarMode | null>(null);
   const [currentDate, setCurrentDate] = useState(today);
@@ -143,6 +141,13 @@ export function App() {
   const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const updateStatus = (event: Event) =>
+      setDataStatus((event as CustomEvent<SharedPersistenceStatus>).detail);
+    window.addEventListener('easydo:persistence-status', updateStatus);
+    return () => window.removeEventListener('easydo:persistence-status', updateStatus);
+  }, []);
 
   const openNewTask = (
     date: string | null,
@@ -239,7 +244,15 @@ export function App() {
         <span className="brand-mark">
           <Check size={20} strokeWidth={3} />
         </span>
-        <p>正在整理你的日程...</p>
+        <p>{dataStatus.message}</p>
+        {dataStatus.kind === 'error' && (
+          <>
+            <span>请先启动 EasyDo 客户端, 网页端会连接同一份本机数据.</span>
+            <button onClick={() => window.location.reload()} type="button">
+              重新连接
+            </button>
+          </>
+        )}
       </div>
     );
   }
@@ -798,7 +811,7 @@ export function App() {
           <SettingsView
             categories={categories.length}
             onClearCompleted={async () => {
-              await db.tasks.filter((task) => Boolean(task.completedAt)).delete();
+              await purgeCompletedTasks();
               showToast('已清理完成任务.');
             }}
             tags={tags.length}
@@ -1217,16 +1230,17 @@ function SettingsView({
 }) {
   const dialog = useAppDialog();
   const [launchAtStartup, setLaunchAtStartupState] = useState(false);
-  const [persistenceStatus, setPersistenceStatus] = useState<DesktopPersistenceStatus>(
-    getDesktopPersistenceStatus,
+  const [persistenceStatus, setPersistenceStatus] = useState<SharedPersistenceStatus>(
+    getSharedPersistenceStatus,
   );
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-    void getLaunchAtStartup().then(setLaunchAtStartupState);
     const updateStatus = (event: Event) =>
-      setPersistenceStatus((event as CustomEvent<DesktopPersistenceStatus>).detail);
+      setPersistenceStatus((event as CustomEvent<SharedPersistenceStatus>).detail);
     window.addEventListener('easydo:persistence-status', updateStatus);
     return () => window.removeEventListener('easydo:persistence-status', updateStatus);
+  }, []);
+  useEffect(() => {
+    if (isTauriRuntime()) void getLaunchAtStartup().then(setLaunchAtStartupState);
   }, []);
   return (
     <section className="settings-view">
@@ -1237,7 +1251,7 @@ function SettingsView({
         <div>
           <p>本地数据</p>
           <h2>你的数据只属于你</h2>
-          <span>EasyDo 使用浏览器本地数据库保存内容, 不会上传任务或日程.</span>
+          <span>网页端和客户端共用本机 SQLite 数据库, 不会上传任务或日程.</span>
         </div>
       </div>
       <div className="data-stats">
@@ -1446,11 +1460,18 @@ function SettingsView({
           </label>
         </div>
       </div>
+      <div className="settings-row desktop-settings-row">
+        <div>
+          <strong>共享数据连接</strong>
+          <p>{persistenceStatus.message}</p>
+          <p>网页地址: http://127.0.0.1:24873</p>
+        </div>
+      </div>
       {isTauriRuntime() && (
         <div className="settings-row desktop-settings-row">
           <div>
             <strong>macOS 桌面集成</strong>
-            <p>{persistenceStatus.message} 快捷添加: Command + Shift + N.</p>
+            <p>快捷添加: Command + Shift + N. 关闭窗口后本机数据服务仍会运行.</p>
           </div>
           <label className="settings-switch">
             <input

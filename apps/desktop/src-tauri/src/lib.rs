@@ -1,7 +1,6 @@
 use tauri::{Emitter, Manager};
-use tauri_plugin_sql::{Migration, MigrationKind};
 
-const SNAPSHOT_MIGRATION_SQL: &str = "CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS snapshot_history (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL, created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_snapshot_history_created_at ON snapshot_history(created_at DESC);";
+pub mod data_service;
 
 fn badge_count(count: u32) -> Option<i64> {
     if count == 0 {
@@ -31,21 +30,9 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "创建本地快照和恢复历史",
-        sql: SNAPSHOT_MIGRATION_SQL,
-        kind: MigrationKind::Up,
-    }];
-
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:easydo.db", migrations)
-                .build(),
-        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -54,6 +41,8 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![set_dock_badge])
         .setup(|app| {
+            let database_path = app.path().app_config_dir()?.join("easydo.db");
+            data_service::start(database_path).map_err(std::io::Error::other)?;
             let menu = tauri::menu::Menu::default(app.handle())?;
             app.set_menu(menu)?;
             #[cfg(desktop)]
@@ -67,9 +56,17 @@ pub fn run() {
                     true,
                     Some("CmdOrCtrl+Shift+N"),
                 )?;
+                let open_browser = tauri::menu::MenuItem::with_id(
+                    app,
+                    "open-browser",
+                    "在浏览器中打开",
+                    true,
+                    None::<&str>,
+                )?;
                 let quit =
                     tauri::menu::MenuItem::with_id(app, "quit", "退出 EasyDo", true, None::<&str>)?;
-                let tray_menu = tauri::menu::Menu::with_items(app, &[&show, &quick_add, &quit])?;
+                let tray_menu =
+                    tauri::menu::Menu::with_items(app, &[&show, &quick_add, &open_browser, &quit])?;
                 tauri::tray::TrayIconBuilder::new()
                     .icon(
                         app.default_window_icon()
@@ -83,6 +80,11 @@ pub fn run() {
                         "quick-add" => {
                             show_main_window(app);
                             let _ = app.emit("easydo:quick-add", ());
+                        }
+                        "open-browser" => {
+                            if let Err(error) = open::that(data_service::DATA_SERVICE_URL) {
+                                log::error!("无法打开 EasyDo 网页端: {error}");
+                            }
                         }
                         "quit" => app.exit(0),
                         _ => {}
@@ -98,24 +100,23 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("EasyDo desktop failed to start");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{badge_count, SNAPSHOT_MIGRATION_SQL};
+    use super::badge_count;
 
     #[test]
     fn dock_badge_hides_zero_and_displays_pending_count() {
         assert_eq!(badge_count(0), None);
         assert_eq!(badge_count(12), Some(12));
-    }
-
-    #[test]
-    fn snapshot_migration_contains_current_and_history_tables() {
-        assert!(SNAPSHOT_MIGRATION_SQL.contains("snapshots"));
-        assert!(SNAPSHOT_MIGRATION_SQL.contains("snapshot_history"));
-        assert!(SNAPSHOT_MIGRATION_SQL.contains("CREATE INDEX"));
     }
 }

@@ -949,6 +949,22 @@ kbd {
   color: #858895;
 }
 
+.loading-screen > span:not(.brand-mark) {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.loading-screen > button {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 9px 16px;
+}
+
 .loading-screen p {
   margin: 0;
   font-size: 13px;

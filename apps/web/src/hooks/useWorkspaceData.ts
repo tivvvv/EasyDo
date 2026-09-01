@@ -1,80 +1,45 @@
-import { db, initializeDatabase } from '@easydo/storage';
-import { defaultAppSettings } from '@easydo/domain';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
-import { restoreDesktopSnapshot, scheduleDesktopSnapshot } from '../lib/desktopPersistence';
+import { sharedWorkspace } from '../lib/sharedWorkspace';
 
 export function useWorkspaceData() {
-  const [ready, setReady] = useState(false);
+  const data = useSyncExternalStore(
+    sharedWorkspace.subscribe,
+    sharedWorkspace.getSnapshot,
+    sharedWorkspace.getSnapshot,
+  );
 
   useEffect(() => {
-    let active = true;
-    void restoreDesktopSnapshot()
-      .then(() => initializeDatabase())
-      .then(() => {
-        if (active) {
-          setReady(true);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+    void sharedWorkspace.initialize().catch(() => undefined);
   }, []);
 
-  const data = useLiveQuery(async () => {
-    if (!ready) {
-      return undefined;
-    }
-
-    const [
-      activities,
-      tasks,
-      categories,
-      countdowns,
-      filters,
-      focusSessions,
-      folders,
-      habits,
-      sections,
-      settings,
-      tags,
-      templates,
-    ] = await Promise.all([
-      db.activities.orderBy('createdAt').reverse().limit(50).toArray(),
-      db.tasks.toArray(),
-      db.categories.orderBy('order').toArray(),
-      db.countdowns.orderBy('date').toArray(),
-      db.filters.orderBy('name').toArray(),
-      db.focusSessions.orderBy('createdAt').reverse().toArray(),
-      db.folders.orderBy('order').toArray(),
-      db.habits.orderBy('createdAt').toArray(),
-      db.sections.orderBy('order').toArray(),
-      db.settings.get('default'),
-      db.tags.orderBy('name').toArray(),
-      db.templates.orderBy('name').toArray(),
-    ]);
-
-    return {
-      activities,
-      categories,
-      countdowns,
-      filters,
-      focusSessions,
-      folders,
-      habits,
-      sections,
-      settings: settings ?? { ...defaultAppSettings },
-      tags,
-      tasks,
-      templates,
-    };
-  }, [ready]);
-
-  useEffect(() => {
-    if (data) scheduleDesktopSnapshot();
-  }, [data]);
-
-  return data;
+  return useMemo(
+    () =>
+      data
+        ? {
+            ...data,
+            activities: [...data.activities]
+              .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+              .slice(0, 50),
+            categories: [...data.categories].sort((left, right) => left.order - right.order),
+            countdowns: [...data.countdowns].sort((left, right) =>
+              left.date.localeCompare(right.date),
+            ),
+            filters: [...data.filters].sort((left, right) => left.name.localeCompare(right.name)),
+            focusSessions: [...data.focusSessions].sort((left, right) =>
+              right.createdAt.localeCompare(left.createdAt),
+            ),
+            folders: [...data.folders].sort((left, right) => left.order - right.order),
+            habits: [...data.habits].sort((left, right) =>
+              left.createdAt.localeCompare(right.createdAt),
+            ),
+            sections: [...data.sections].sort((left, right) => left.order - right.order),
+            tags: [...data.tags].sort((left, right) => left.name.localeCompare(right.name)),
+            templates: [...data.templates].sort((left, right) =>
+              left.name.localeCompare(right.name),
+            ),
+          }
+        : undefined,
+    [data],
+  );
 }

@@ -6,8 +6,6 @@
   "permissions": [
     "core:default",
     "notification:default",
-    "sql:default",
-    "sql:allow-execute",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

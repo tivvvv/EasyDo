@@ -29,6 +29,10 @@ pnpm desktop:build:universal
 
 单架构产物位于 `apps/desktop/src-tauri/target/release/bundle/`. Universal 产物位于 `apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/`.
 
-桌面端使用 WebView 的 IndexedDB 提供实时界面查询, 同时将完整数据写入 SQLite 当前快照和最近 10 份恢复历史. 任务与习惯提醒由 macOS 原生调度, 关闭应用后仍可触发. 应用还支持窗口恢复, 系统托盘, Dock 徽标, 全局快速添加和登录时启动.
+桌面端和网页端统一通过本机数据服务访问同一份 SQLite 数据库. 服务仅监听 `127.0.0.1:24873`, 不会将任务或日程上传到互联网. 所有写入使用事务和版本校验, 数据变化会实时通知其他已打开界面. 关闭主窗口后服务继续运行, 系统托盘可重新打开客户端或在浏览器中打开完整网页界面.
+
+从 1.9 升级时, WebView 和浏览器中的旧 IndexedDB 会先原样保存到 SQLite 的迁移备份表, 再与当前数据合并. 迁移完成后旧业务数据库会被安全清理. SQLite 同时保留最近 20 份历史数据用于恢复.
+
+任务与习惯提醒由 macOS 原生调度, 关闭窗口后仍可触发. 应用还支持窗口恢复, 系统托盘, Dock 徽标, 全局快速添加和登录时启动.
 
 本地构建使用 ad-hoc 签名. 对外分发前需要配置 Apple Developer 签名与公证凭据.

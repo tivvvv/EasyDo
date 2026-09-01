@@ -1,6 +1,48 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+import { createInitialWorkspace } from '../src/lib/workspaceData';
+
+const workspaceApi = 'http://127.0.0.1:24873/api/v1/workspace';
+const clientHeaders = { 'X-EasyDo-Client': '1' };
+
+test.beforeEach(async ({ request }) => {
+  const current = await request.get(workspaceApi, { headers: clientHeaders });
+  const revision =
+    current.status() === 204
+      ? 0
+      : Number(((await current.json()) as { revision: number }).revision);
+  const response = await request.put(workspaceApi, {
+    data: { baseRevision: revision, payload: createInitialWorkspace() },
+    headers: clientHeaders,
+  });
+  expect(response.ok()).toBe(true);
+});
+
+test('网页端和客户端视图实时共享同一份任务数据', async ({ browser, page, isMobile }) => {
+  test.skip(isMobile, '双窗口共享数据流程只需在桌面浏览器执行一次.');
+  const browserContext = await browser.newContext();
+  const browserPage = await browserContext.newPage();
+  await Promise.all([page.goto('/'), browserPage.goto('http://127.0.0.1:24873')]);
+
+  await page
+    .getByRole('button', { name: /添加任务/ })
+    .first()
+    .click();
+  await page.getByLabel('任务标题').fill('跨界面共享任务');
+  await page.getByRole('button', { name: '创建任务' }).click();
+
+  await expect(browserPage.getByText('跨界面共享任务').first()).toBeVisible();
+  await browserPage.getByText('跨界面共享任务').first().click();
+  await browserPage.getByRole('button', { name: '完整编辑' }).click();
+  await browserPage.getByLabel('任务标题').fill('网页端修改后的共享任务');
+  await browserPage.getByRole('button', { name: '保存更改' }).click();
+
+  await expect(page.getByText('网页端修改后的共享任务').first()).toBeVisible();
+  await expect(page.getByText('跨界面共享任务')).toHaveCount(0);
+  await browserContext.close();
+});
+
 test('创建, 搜索并完成任务', async ({ page, isMobile }) => {
   await page.goto('/');
   await expect(page.getByLabel('搜索任务')).toBeVisible();
