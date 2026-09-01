@@ -18,7 +18,9 @@ export type ProductivityHubProps = {
   onAddFocusSession: (session: {
     durationMinutes: number;
     endedAt: string;
+    interruptions?: number;
     mode: FocusSession['mode'];
+    stage?: number;
     startedAt: string;
     taskId: string | null;
   }) => Promise<void>;
@@ -35,7 +37,13 @@ export type ProductivityHubProps = {
   onDeleteSection: (id: string) => Promise<void>;
   onEdit: (task: Task) => void;
   onToggleHabit: (id: string, dateKey: string) => Promise<void>;
+  onToggleHabitSkip?: (id: string, dateKey: string) => Promise<void>;
   onUpdateHabit: (id: string, patch: HabitPatch) => Promise<void>;
+  onUpdateSection?: (
+    id: string,
+    patch: Partial<Pick<Section, 'name' | 'wipLimit'>>,
+  ) => Promise<void>;
+  onUpdateSettings?: (patch: Partial<Omit<AppSettings, 'id'>>) => Promise<void>;
   onUpdateTask: (id: string, patch: Partial<Task>) => Promise<void>;
   sections: Section[];
   settings: AppSettings;

@@ -1,18 +1,37 @@
 import type { Habit } from '@easydo/domain';
 import { calculateHabitStreak } from '@easydo/domain';
 import { endOfWeek, format, parseISO, startOfWeek, subDays } from 'date-fns';
-import { Pause, Play, Plus, RotateCcw, Settings2, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import {
+  Bell,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  SkipForward,
+  Square,
+  Settings2,
+  Trash2,
+  Volume2,
+  VolumeX,
+  Zap,
+} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useFocusTimer, type FocusTimerMode } from '../../hooks/useFocusTimer';
 import type { ProductivityHubProps } from './types';
 
 export function FocusTimer(props: ProductivityHubProps) {
+  const [fullscreen, setFullscreen] = useState(false);
   const timer = useFocusTimer({
+    autoStartBreak: props.settings.autoStartBreak,
     focusMinutes: props.settings.pomodoroMinutes,
-    onComplete: async (session) => props.onAddFocusSession({ ...session, mode: 'pomodoro' }),
+    focusRounds: props.settings.focusRounds,
+    onComplete: props.onAddFocusSession,
     shortBreakMinutes: props.settings.shortBreakMinutes,
   });
+  useFocusNoise(props.settings.whiteNoise, timer.running);
   const displayedSeconds = timer.remainingSeconds;
   const modeLabels: Array<{ label: string; value: FocusTimerMode }> = [
     { label: '专注', value: 'focus' },
@@ -21,12 +40,20 @@ export function FocusTimer(props: ProductivityHubProps) {
   ];
 
   return (
-    <div className="hub-panel focus-panel">
+    <div className={`hub-panel focus-panel${fullscreen ? ' focus-fullscreen' : ''}`}>
       <div className="hub-heading">
         <div>
           <p>一次只做好一件事</p>
           <h2>番茄专注</h2>
         </div>
+        <button
+          aria-label={fullscreen ? '退出沉浸模式' : '进入沉浸模式'}
+          className="focus-fullscreen-button"
+          onClick={() => setFullscreen((value) => !value)}
+          type="button"
+        >
+          {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+        </button>
       </div>
       <div className="focus-clock">
         <div className="focus-mode-switch" aria-label="计时模式">
@@ -46,6 +73,12 @@ export function FocusTimer(props: ProductivityHubProps) {
           {String(Math.floor(displayedSeconds / 60)).padStart(2, '0')}:
           {String(displayedSeconds % 60).padStart(2, '0')}
         </span>
+        <div className="focus-rounds" aria-label="番茄轮次">
+          {Array.from({ length: props.settings.focusRounds }, (_, index) => (
+            <i className={index + 1 <= timer.round ? 'active' : ''} key={index} />
+          ))}
+          第 {timer.round} 轮
+        </div>
         <select
           aria-label="关联任务"
           disabled={timer.running}
@@ -70,6 +103,44 @@ export function FocusTimer(props: ProductivityHubProps) {
             <RotateCcw size={16} />
             重置
           </button>
+          {(timer.elapsedSeconds >= 60 || timer.mode === 'stopwatch') && (
+            <button className="secondary-button" onClick={() => void timer.finish()} type="button">
+              <Square size={15} />
+              完成本次
+            </button>
+          )}
+        </div>
+        <div className="focus-assists">
+          <button onClick={timer.addInterruption} type="button">
+            <Zap size={14} />
+            记录中断 {timer.interruptions}
+          </button>
+          <label>
+            {props.settings.whiteNoise === 'none' ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            环境声
+            <select
+              onChange={(event) =>
+                void props.onUpdateSettings?.({
+                  whiteNoise: event.target.value as 'brown' | 'none' | 'rain',
+                })
+              }
+              value={props.settings.whiteNoise}
+            >
+              <option value="none">关闭</option>
+              <option value="rain">雨声</option>
+              <option value="brown">棕噪声</option>
+            </select>
+          </label>
+          <label>
+            <input
+              checked={props.settings.autoStartBreak}
+              onChange={(event) =>
+                void props.onUpdateSettings?.({ autoStartBreak: event.target.checked })
+              }
+              type="checkbox"
+            />
+            自动开始休息
+          </label>
         </div>
       </div>
       <p className="focus-summary">
@@ -127,14 +198,21 @@ export function HabitTracker(props: ProductivityHubProps) {
             const date = parseISO(key);
             return date >= weekStart && date <= weekEnd;
           }).length;
+          const monthlyDone = habit.logs.filter((key) =>
+            days.some((day) => format(day, 'yyyy-MM-dd') === key),
+          ).length;
+          const monthlySkipped = (habit.skippedDates ?? []).filter((key) =>
+            days.some((day) => format(day, 'yyyy-MM-dd') === key),
+          ).length;
           return (
-            <article key={habit.id}>
+            <article className={habit.pausedAt ? 'paused' : ''} key={habit.id}>
               <header>
                 <i style={{ background: habit.color }} />
                 <strong>{habit.name}</strong>
                 <span>
                   连续 {streak.current} 天 · 最长 {streak.longest} 天
                 </span>
+                {habit.pausedAt && <b className="habit-paused-chip">已暂停</b>}
                 <button
                   aria-label={`设置习惯 ${habit.name}`}
                   className={editingHabitId === habit.id ? 'active' : ''}
@@ -162,6 +240,37 @@ export function HabitTracker(props: ProductivityHubProps) {
                       <option value="weekly">每周</option>
                     </select>
                   </label>
+                  <label>
+                    <Bell size={13} /> 提醒
+                    <input
+                      onChange={(event) =>
+                        void props.onUpdateHabit(habit.id, {
+                          reminderTime: event.target.value || null,
+                        })
+                      }
+                      type="time"
+                      value={habit.reminderTime ?? ''}
+                    />
+                  </label>
+                  <button
+                    onClick={() =>
+                      void props.onUpdateHabit(habit.id, {
+                        pausedAt: habit.pausedAt ? null : new Date().toISOString(),
+                      })
+                    }
+                    type="button"
+                  >
+                    {habit.pausedAt ? <Play size={14} /> : <Pause size={14} />}
+                    {habit.pausedAt ? '继续习惯' : '暂停习惯'}
+                  </button>
+                  <button
+                    disabled={Boolean(habit.pausedAt)}
+                    onClick={() => void props.onToggleHabitSkip?.(habit.id, todayKey)}
+                    type="button"
+                  >
+                    <SkipForward size={14} />
+                    {(habit.skippedDates ?? []).includes(todayKey) ? '取消跳过今天' : '跳过今天'}
+                  </button>
                   <label>
                     目标次数
                     <input
@@ -195,20 +304,25 @@ export function HabitTracker(props: ProductivityHubProps) {
                   本周进度
                 </span>
                 <span>
-                  <strong>{Math.round((habit.logs.length / 30) * 100)}%</strong>近 30 天
+                  <strong>
+                    {Math.round((monthlyDone / Math.max(1, 30 - monthlySkipped)) * 100)}%
+                  </strong>
+                  近 30 天
                 </span>
               </div>
               <div className="habit-heatmap" aria-label={`${habit.name}近 30 天记录`}>
                 {days.map((day) => {
                   const key = format(day, 'yyyy-MM-dd');
                   const done = habit.logs.includes(key);
+                  const skipped = (habit.skippedDates ?? []).includes(key);
                   return (
                     <button
                       aria-label={`${key}${done ? '已' : '未'}打卡`}
-                      className={done ? 'done' : ''}
+                      className={done ? 'done' : skipped ? 'skipped' : ''}
+                      disabled={Boolean(habit.pausedAt)}
                       key={key}
                       onClick={() => void props.onToggleHabit(habit.id, key)}
-                      title={`${format(day, 'M 月 d 日')} · ${done ? '已打卡' : '未打卡'}`}
+                      title={`${format(day, 'M 月 d 日')} · ${done ? '已打卡' : skipped ? '已跳过' : '未打卡'}`}
                       type="button"
                     >
                       {format(day, 'd')}
@@ -216,6 +330,11 @@ export function HabitTracker(props: ProductivityHubProps) {
                   );
                 })}
               </div>
+              <footer className="habit-month-summary">
+                本月完成 {monthlyDone} 次, 跳过 {monthlySkipped} 天.
+                {(habit.goalHistory?.length ?? 0) > 0 &&
+                  ` 目标调整 ${habit.goalHistory?.length ?? 0} 次.`}
+              </footer>
             </article>
           );
         })}
@@ -226,4 +345,35 @@ export function HabitTracker(props: ProductivityHubProps) {
       )}
     </div>
   );
+}
+
+function useFocusNoise(kind: 'brown' | 'none' | 'rain', running: boolean) {
+  const audioRef = useRef<{ context: AudioContext; source: AudioBufferSourceNode } | null>(null);
+  useEffect(() => {
+    if (!running || kind === 'none') return undefined;
+    const AudioContextClass = window.AudioContext;
+    const context = new AudioContextClass();
+    const sampleRate = context.sampleRate;
+    const buffer = context.createBuffer(1, sampleRate * 3, sampleRate);
+    const output = buffer.getChannelData(0);
+    let previous = 0;
+    for (let index = 0; index < output.length; index += 1) {
+      const white = Math.random() * 2 - 1;
+      previous = kind === 'brown' ? (previous + 0.02 * white) / 1.02 : white;
+      output[index] = Math.max(-1, Math.min(1, previous * (kind === 'brown' ? 3.2 : 0.28)));
+    }
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    gain.gain.value = kind === 'brown' ? 0.11 : 0.08;
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(gain).connect(context.destination);
+    source.start();
+    audioRef.current = { context, source };
+    return () => {
+      source.stop();
+      void context.close();
+      audioRef.current = null;
+    };
+  }, [kind, running]);
 }

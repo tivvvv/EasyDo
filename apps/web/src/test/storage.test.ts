@@ -30,11 +30,13 @@ import {
   reorderCategories,
   toggleTask,
   toggleHabitLog,
+  toggleHabitSkip,
   updateCategory,
   updateFolder,
   updateHabit,
   updateTag,
   updateSettings,
+  updateSection,
   updateTask,
 } from '@easydo/storage';
 import { getLocalTimeZone } from '@easydo/domain';
@@ -293,7 +295,7 @@ describe('本地数据仓库', () => {
       focusSessions: [{ id: focus.id, durationMinutes: 25 }],
       habits: [{ id: habit.id, logs: ['2026-08-31'] }],
       sections: [{ id: section.id, name: '进行中' }],
-      version: 4,
+      version: 5,
     });
 
     await deleteSection(section.id, database);
@@ -391,9 +393,12 @@ describe('本地数据仓库', () => {
     expect(await upgraded.tasks.get('task-old')).toMatchObject({
       allDay: false,
       attachments: [],
+      dependencyIds: [],
       endTime: '09:30',
+      estimateMinutes: 30,
       important: false,
       kind: 'task',
+      milestone: false,
       reminders: [expect.objectContaining({ offsetMinutes: 10 })],
       sectionId: null,
     });
@@ -403,6 +408,8 @@ describe('本地数据仓库', () => {
     });
     expect((await upgraded.filters.get('filter-old'))?.criteria.kind).toBe('all');
     expect(await upgraded.settings.get('default')).toMatchObject({
+      dailyCapacityMinutes: 480,
+      focusRounds: 4,
       taskSort: 'manual',
       theme: 'system',
     });
@@ -460,6 +467,32 @@ describe('本地数据仓库', () => {
       name: '每周阅读',
       target: 3,
       weekDays: [1, 3],
+    });
+    expect((await database.habits.get(habit.id))?.goalHistory).toHaveLength(1);
+    await toggleHabitSkip(habit.id, '2026-09-01', database);
+    expect((await database.habits.get(habit.id))?.skippedDates).toEqual(['2026-09-01']);
+  });
+
+  it('保存看板在制限制和专注中断数据', async () => {
+    await initializeDatabase(database);
+    const section = await addSection('category-work', '进行中', database);
+    await updateSection(section.id, { wipLimit: 3 }, database);
+    const focus = await addFocusSession(
+      {
+        durationMinutes: 50,
+        endedAt: '2026-09-01T02:00:00.000Z',
+        interruptions: 2,
+        mode: 'pomodoro',
+        stage: 2,
+        startedAt: '2026-09-01T01:10:00.000Z',
+        taskId: null,
+      },
+      database,
+    );
+    expect(await database.sections.get(section.id)).toMatchObject({ wipLimit: 3 });
+    expect(await database.focusSessions.get(focus.id)).toMatchObject({
+      interruptions: 2,
+      stage: 2,
     });
   });
 });

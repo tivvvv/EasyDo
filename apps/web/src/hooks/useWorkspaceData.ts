@@ -3,23 +3,27 @@ import { defaultAppSettings } from '@easydo/domain';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useState } from 'react';
 
+import { restoreDesktopSnapshot, scheduleDesktopSnapshot } from '../lib/desktopPersistence';
+
 export function useWorkspaceData() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void initializeDatabase().then(() => {
-      if (active) {
-        setReady(true);
-      }
-    });
+    void restoreDesktopSnapshot()
+      .then(() => initializeDatabase())
+      .then(() => {
+        if (active) {
+          setReady(true);
+        }
+      });
 
     return () => {
       active = false;
     };
   }, []);
 
-  return useLiveQuery(async () => {
+  const data = useLiveQuery(async () => {
     if (!ready) {
       return undefined;
     }
@@ -67,4 +71,10 @@ export function useWorkspaceData() {
       templates,
     };
   }, [ready]);
+
+  useEffect(() => {
+    if (data) scheduleDesktopSnapshot();
+  }, [data]);
+
+  return data;
 }

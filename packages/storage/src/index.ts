@@ -183,15 +183,83 @@ export class EasyDoDatabase extends Dexie {
             if (activity.after) upgradeTask(activity.after);
           });
       });
+    this.version(6)
+      .stores({
+        activities: 'id, action, createdAt, groupId, taskId',
+        categories: 'id, folderId, order, name',
+        countdowns: 'id, date, title',
+        filters: 'id, createdAt, name',
+        focusSessions: 'id, createdAt, startedAt, taskId',
+        folders: 'id, order, name',
+        habits: 'id, archivedAt, pausedAt, createdAt, name, *logs, *skippedDates',
+        sections: 'id, categoryId, order, name',
+        settings: 'id',
+        tags: 'id, name',
+        tasks:
+          'id, dueDate, dueTime, endDate, categoryId, completedAt, deletedAt, important, kind, milestone, order, parentId, priority, sectionId, seriesId, createdAt, *dependencyIds, *tagIds',
+        templates: 'id, createdAt, name',
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table<Task>('tasks')
+          .toCollection()
+          .modify((task) => {
+            upgradeTask(task);
+          });
+        await transaction
+          .table<TaskTemplate>('templates')
+          .toCollection()
+          .modify((template) => {
+            template.draft = upgradeDraft(template.draft);
+          });
+        await transaction
+          .table<ActivityRecord>('activities')
+          .toCollection()
+          .modify((activity) => {
+            if (activity.before) upgradeTask(activity.before);
+            if (activity.after) upgradeTask(activity.after);
+          });
+        await transaction
+          .table<AppSettings>('settings')
+          .toCollection()
+          .modify((settings) => {
+            Object.assign(settings, normalizeSettings(settings));
+          });
+        await transaction
+          .table<Habit>('habits')
+          .toCollection()
+          .modify((habit) => {
+            habit.goalHistory ??= [];
+            habit.pausedAt ??= null;
+            habit.reminderTime ??= null;
+            habit.skippedDates ??= [];
+          });
+        await transaction
+          .table<Section>('sections')
+          .toCollection()
+          .modify((section) => {
+            section.wipLimit ??= null;
+          });
+        await transaction
+          .table<FocusSession>('focusSessions')
+          .toCollection()
+          .modify((session) => {
+            session.interruptions ??= 0;
+            session.stage ??= 1;
+          });
+      });
   }
 }
 
 function upgradeTask(task: Task): Task {
   task.attachments ??= [];
   task.allDay ??= !task.dueTime;
+  task.dependencyIds ??= [];
   task.endTime ??= task.dueTime ? addMinutesToTime(task.dueTime, task.duration) : null;
+  task.estimateMinutes ??= task.duration;
   task.kind ??= 'task';
   task.important ??= task.priority === 'high';
+  task.milestone ??= false;
   task.parentId ??= null;
   task.reminders ??=
     task.reminderMinutes === null || task.reminderMinutes === undefined
@@ -221,10 +289,13 @@ function upgradeDraft(draft: TaskDraft): TaskDraft {
     ...draft,
     attachments: draft.attachments ?? [],
     allDay: draft.allDay ?? !draft.dueTime,
+    dependencyIds: draft.dependencyIds ?? [],
     endTime:
       draft.endTime ?? (draft.dueTime ? addMinutesToTime(draft.dueTime, draft.duration) : null),
+    estimateMinutes: Math.max(0, Math.round(draft.estimateMinutes ?? draft.duration ?? 30)),
     kind: draft.kind ?? 'task',
     important: draft.important ?? draft.priority === 'high',
+    milestone: draft.milestone ?? false,
     parentId: draft.parentId ?? null,
     recurrence: draft.recurrence
       ? {
@@ -685,7 +756,7 @@ export async function exportBackup(database: EasyDoDatabase = db): Promise<Backu
     tags,
     tasks,
     templates,
-    version: 4,
+    version: 5,
   };
 }
 
@@ -809,9 +880,24 @@ export async function addSection(
     id: createId('section'),
     name: name.trim(),
     order: await database.sections.where('categoryId').equals(categoryId).count(),
+    wipLimit: null,
   };
   await database.sections.add(section);
   return section;
+}
+
+export async function updateSection(
+  id: string,
+  patch: Partial<Pick<Section, 'name' | 'order' | 'wipLimit'>>,
+  database: EasyDoDatabase = db,
+): Promise<void> {
+  await database.sections.update(id, {
+    ...patch,
+    ...(patch.name === undefined ? {} : { name: patch.name.trim() }),
+    ...(patch.wipLimit === undefined
+      ? {}
+      : { wipLimit: patch.wipLimit === null ? null : Math.max(1, Math.round(patch.wipLimit)) }),
+  });
 }
 
 export async function deleteSection(id: string, database: EasyDoDatabase = db): Promise<void> {
@@ -834,6 +920,10 @@ export async function addHabit(
     id: createId('habit'),
     logs: [],
     name: name.trim(),
+    goalHistory: [],
+    pausedAt: null,
+    reminderTime: null,
+    skippedDates: [],
     target: 1,
     weekDays: [],
   };
@@ -860,15 +950,43 @@ export async function updateHabit(
   patch: HabitPatch,
   database: EasyDoDatabase = db,
 ): Promise<void> {
+  const current = patch.target === undefined ? undefined : await database.habits.get(id);
+  const target = patch.target === undefined ? undefined : Math.max(1, Math.round(patch.target));
   const normalized: HabitPatch = {
     ...patch,
     ...(patch.name === undefined ? {} : { name: patch.name.trim() }),
-    ...(patch.target === undefined ? {} : { target: Math.max(1, Math.round(patch.target)) }),
+    ...(target === undefined ? {} : { target }),
+    ...(target === undefined || !current || current.target === target
+      ? {}
+      : {
+          goalHistory: [
+            ...(current.goalHistory ?? []),
+            { changedAt: new Date().toISOString(), target },
+          ],
+        }),
+    ...(patch.skippedDates === undefined
+      ? {}
+      : { skippedDates: [...new Set(patch.skippedDates)].sort() }),
     ...(patch.weekDays === undefined
       ? {}
       : { weekDays: [...new Set(patch.weekDays)].filter((day) => day >= 0 && day <= 6) }),
   };
   await database.habits.update(id, normalized);
+}
+
+export async function toggleHabitSkip(
+  id: string,
+  dateKey: string,
+  database: EasyDoDatabase = db,
+): Promise<void> {
+  const habit = await database.habits.get(id);
+  if (!habit) return;
+  const skippedDates = habit.skippedDates ?? [];
+  await database.habits.update(id, {
+    skippedDates: skippedDates.includes(dateKey)
+      ? skippedDates.filter((item) => item !== dateKey)
+      : [...skippedDates, dateKey].sort(),
+  });
 }
 
 export async function deleteHabit(id: string, database: EasyDoDatabase = db): Promise<void> {
@@ -883,6 +1001,8 @@ export async function addFocusSession(
     ...session,
     createdAt: new Date().toISOString(),
     id: createId('focus'),
+    interruptions: session.interruptions ?? 0,
+    stage: session.stage ?? 1,
   };
   await database.focusSessions.add(record);
   return record;

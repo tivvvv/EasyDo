@@ -27,6 +27,7 @@ type CalendarViewProps = {
   onAdd: (date: string, time?: string | null, duration?: number) => void;
   onEdit: (task: Task) => void;
   onMove: (taskId: string, date: string, time?: string | null) => Promise<void>;
+  onCopy?: (taskId: string, date: string, time?: string | null) => Promise<void>;
   onQuickEdit: (task: Task) => void;
   onResize: (taskId: string, duration: number) => Promise<void>;
   onSelectDate: (date: Date) => void;
@@ -54,7 +55,14 @@ export function CalendarView(props: CalendarViewProps) {
 
   return (
     <>
-      <CalendarOverview categories={props.categories} onEdit={props.onEdit} tasks={props.tasks} />
+      <CalendarOverview
+        categories={props.categories}
+        onAdd={props.onAdd}
+        onEdit={props.onEdit}
+        selectedDate={props.selectedDate}
+        settings={props.settings}
+        tasks={props.tasks}
+      />
       <PlanningTray onEdit={props.onEdit} tasks={props.tasks} />
       {calendar}
     </>
@@ -63,28 +71,37 @@ export function CalendarView(props: CalendarViewProps) {
 
 function CalendarOverview({
   categories,
+  onAdd,
   onEdit,
+  selectedDate,
+  settings,
   tasks,
 }: {
   categories: Category[];
+  onAdd: (date: string, time?: string | null, duration?: number) => void;
   onEdit: (task: Task) => void;
+  selectedDate: Date;
+  settings: AppSettings;
   tasks: Task[];
 }) {
   const active = tasks.filter((task) => !task.completedAt);
-  const scheduled = active.filter((task) => task.dueDate);
+  const selectedKey = toDateKey(selectedDate);
+  const scheduled = active.filter((task) => task.dueDate === selectedKey);
   const conflicts = scheduled.filter((task) => taskHasConflict(task, scheduled));
-  const minutes = scheduled.reduce((sum, task) => sum + (task.dueTime ? task.duration : 0), 0);
+  const minutes = scheduled.reduce((sum, task) => sum + (task.estimateMinutes ?? task.duration), 0);
+  const load = Math.round((minutes / settings.dailyCapacityMinutes) * 100);
+  const freeSlot = findFreeSlot(scheduled, settings.workdayStart, settings.workdayEnd, 30);
   return (
     <section className="calendar-overview" aria-label="日历负载概览">
       <span>
         <CalendarDays size={16} />
         <strong>{scheduled.length}</strong>
-        已安排
+        当天安排
       </span>
       <span>
         <Timer size={16} />
         <strong>{Math.round((minutes / 60) * 10) / 10}</strong>
-        计划小时
+        小时负载
       </span>
       <button
         className={conflicts.length ? 'warning' : ''}
@@ -98,9 +115,19 @@ function CalendarOverview({
       </button>
       <span>
         <Inbox size={16} />
-        <strong>{active.length - scheduled.length}</strong>
+        <strong>{active.filter((task) => !task.dueDate).length}</strong>
         待安排
       </span>
+      <button
+        className={load > 100 ? 'warning capacity-over' : 'capacity-load'}
+        onClick={() => freeSlot && onAdd(selectedKey, freeSlot, 30)}
+        title={freeSlot ? `建议安排在 ${freeSlot}` : '工作时段内没有连续 30 分钟空档'}
+        type="button"
+      >
+        <Clock3 size={16} />
+        <strong>{load}%</strong>
+        {freeSlot ? `${freeSlot} 有空` : '容量已满'}
+      </button>
       <div className="calendar-legend" aria-label="分类图例">
         <Layers3 size={15} />
         {categories.slice(0, 4).map((category) => (
@@ -365,6 +392,7 @@ function TimeCalendar({
   onAdd,
   onEdit,
   onMove,
+  onCopy,
   onQuickEdit,
   onResize,
   settings,
@@ -416,7 +444,10 @@ function TimeCalendar({
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 const taskId = event.dataTransfer.getData('text/task-id');
-                if (taskId) void onMove(taskId, dateKey, null);
+                if (taskId)
+                  void (event.altKey && onCopy
+                    ? onCopy(taskId, dateKey, null)
+                    : onMove(taskId, dateKey, null));
               }}
             >
               {tasks
@@ -535,17 +566,16 @@ function TimeCalendar({
                 }}
                 onDrop={(event) => {
                   const taskId = event.dataTransfer.getData('text/task-id');
+                  const time = timeFromPointer(
+                    event,
+                    settings.workdayStart,
+                    settings.workdayEnd,
+                    hourHeight,
+                  );
                   if (taskId)
-                    void onMove(
-                      taskId,
-                      dateKey,
-                      timeFromPointer(
-                        event,
-                        settings.workdayStart,
-                        settings.workdayEnd,
-                        hourHeight,
-                      ),
-                    );
+                    void (event.altKey && onCopy
+                      ? onCopy(taskId, dateKey, time)
+                      : onMove(taskId, dateKey, time));
                   setDragPreview(null);
                 }}
                 style={{ height: calendarHeight }}
@@ -875,6 +905,31 @@ function AgendaCalendar({
       )}
     </section>
   );
+}
+
+function findFreeSlot(
+  tasks: Task[],
+  workdayStart: number,
+  workdayEnd: number,
+  duration: number,
+): string | null {
+  const occupied = tasks
+    .filter((task) => task.dueTime)
+    .map((task) => ({
+      end: minutesFromTime(task.dueTime) + task.duration,
+      start: minutesFromTime(task.dueTime),
+    }))
+    .sort((left, right) => left.start - right.start);
+  let cursor = workdayStart * 60;
+  for (const interval of occupied) {
+    if (interval.start - cursor >= duration) return formatMinutes(cursor);
+    cursor = Math.max(cursor, interval.end);
+  }
+  return workdayEnd * 60 - cursor >= duration ? formatMinutes(cursor) : null;
+}
+
+function formatMinutes(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
 function timeFromPointer(

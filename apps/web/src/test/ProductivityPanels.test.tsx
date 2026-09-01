@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import { FilterPanel } from '../components/FilterPanel';
+import { AppDialogProvider } from '../components/AppDialog';
 import { QuickEditPanel } from '../components/QuickEditPanel';
 import { ProductivityHub } from '../components/ProductivityHub';
 
@@ -97,19 +98,19 @@ describe('效率面板', () => {
     const onApply = vi.fn();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const criteria: FilterCriteria = { ...defaultFilterCriteria, tagIds: [] };
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('近期重点');
-
     render(
-      <FilterPanel
-        categories={[category]}
-        criteria={criteria}
-        filters={[]}
-        onApply={onApply}
-        onClose={() => undefined}
-        onDelete={async () => undefined}
-        onSave={onSave}
-        tags={[tag]}
-      />,
+      <AppDialogProvider>
+        <FilterPanel
+          categories={[category]}
+          criteria={criteria}
+          filters={[]}
+          onApply={onApply}
+          onClose={() => undefined}
+          onDelete={async () => undefined}
+          onSave={onSave}
+          tags={[tag]}
+        />
+      </AppDialogProvider>,
     );
 
     await user.selectOptions(screen.getByLabelText('日期范围'), 'next7');
@@ -117,8 +118,9 @@ describe('效率面板', () => {
     await user.click(screen.getByRole('button', { name: '#专注' }));
     expect(onApply).toHaveBeenCalledWith({ ...criteria, tagIds: [tag.id] });
     await user.click(screen.getByRole('button', { name: /保存为智能清单/ }));
+    await user.type(screen.getByLabelText('清单名称'), '近期重点');
+    await user.click(screen.getByRole('button', { name: '保存' }));
     expect(onSave).toHaveBeenCalledWith('近期重点', criteria);
-    prompt.mockRestore();
   });
 
   it('快速修改任务并清除无日期任务的时间', async () => {

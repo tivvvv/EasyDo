@@ -245,6 +245,9 @@ describe('任务应用服务', () => {
     const service = new TaskApplicationService(repository, activities);
     const created = await service.create({
       ...draft,
+      dependencyIds: ['task-required'],
+      estimateMinutes: 90,
+      milestone: true,
       subtasks: [
         { ...createSubtask('步骤'), completedAt: '2026-08-31T00:00:00.000Z', id: 'subtask-old' },
       ],
@@ -254,6 +257,11 @@ describe('任务应用服务', () => {
     expect(duplicate.title).toBe('测试任务 副本');
     expect(duplicate.subtasks[0]?.completedAt).toBeNull();
     expect(duplicate.subtasks[0]?.id).not.toBe('subtask-old');
+    expect(duplicate).toMatchObject({
+      dependencyIds: ['task-required'],
+      estimateMinutes: 90,
+      milestone: true,
+    });
     expect(activities.records.map((activity) => activity.action)).toEqual(['create', 'duplicate']);
   });
 
@@ -533,7 +541,7 @@ describe('重复日期和提醒规则', () => {
           version: 1,
         }),
       ),
-    ).toMatchObject({ version: 4 });
+    ).toMatchObject({ version: 5 });
     expect(() => parseBackup('{"version":2}')).toThrow('备份文件格式不正确.');
     expect(() =>
       parseBackup(
@@ -626,7 +634,7 @@ describe('重复日期和提醒规则', () => {
       activities: [{ id: 'activity-old' }],
       filters: [{ id: 'filter-old' }],
       templates: [{ id: 'template-old' }],
-      version: 4,
+      version: 5,
     });
   });
 });

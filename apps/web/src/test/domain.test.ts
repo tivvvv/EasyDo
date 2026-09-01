@@ -7,6 +7,8 @@ import {
   isBackupPayload,
   matchesTaskSearch,
   sortTasks,
+  taskActualMinutes,
+  taskBlockingDependencies,
   taskProgress,
 } from '@easydo/domain';
 
@@ -86,6 +88,50 @@ describe('任务领域规则', () => {
         }),
       ),
     ).toEqual({ completed: 1, total: 2 });
+  });
+
+  it('计算任务实际专注时间和未完成前置任务', () => {
+    const dependency = task({ id: 'dependency', title: '前置任务' });
+    const current = task({ dependencyIds: [dependency.id], id: 'current' });
+    expect(taskBlockingDependencies(current, [current, dependency])).toEqual([dependency]);
+    expect(
+      taskActualMinutes(current.id, [
+        {
+          createdAt: '2026-09-01T01:25:00.000Z',
+          durationMinutes: 25,
+          endedAt: '2026-09-01T01:25:00.000Z',
+          id: 'focus-current',
+          mode: 'pomodoro',
+          startedAt: '2026-09-01T01:00:00.000Z',
+          taskId: current.id,
+        },
+        {
+          createdAt: '2026-09-01T02:25:00.000Z',
+          durationMinutes: 25,
+          endedAt: '2026-09-01T02:25:00.000Z',
+          id: 'focus-other',
+          mode: 'pomodoro',
+          startedAt: '2026-09-01T02:00:00.000Z',
+          taskId: dependency.id,
+        },
+      ]),
+    ).toBe(25);
+  });
+
+  it('在一万条任务下保持筛选和排序结果稳定', () => {
+    const tasks = Array.from({ length: 10_000 }, (_, index) =>
+      task({
+        dueDate: `2026-09-${String((index % 28) + 1).padStart(2, '0')}`,
+        id: `task-${index}`,
+        priority: index % 4 === 0 ? 'high' : 'none',
+        title: index % 10 === 0 ? `重点任务 ${index}` : `普通任务 ${index}`,
+      }),
+    );
+    const startedAt = performance.now();
+    const result = sortTasks(tasks.filter((item) => matchesTaskSearch(item, '重点')));
+    expect(result).toHaveLength(1_000);
+    expect(result[0]?.priority).toBe('high');
+    expect(performance.now() - startedAt).toBeLessThan(1_500);
   });
 
   it('计算习惯的当前连续天数和历史最长连续天数', () => {

@@ -16,7 +16,7 @@ export default defineConfig({
     url: 'http://localhost:5173',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
-    { name: 'mobile-chrome', use: { ...devices['Pixel 7'], channel: 'chrome' } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
   ],
 });

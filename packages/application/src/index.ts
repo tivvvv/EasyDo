@@ -214,13 +214,16 @@ export class TaskApplicationService {
         allDay: task.allDay,
         attachments: task.attachments,
         categoryId: task.categoryId,
+        dependencyIds: task.dependencyIds,
         dueDate: task.dueDate,
         dueTime: task.dueTime,
         duration: task.duration,
         endDate: task.endDate,
         endTime: task.endTime,
+        estimateMinutes: task.estimateMinutes,
         important: task.important,
         kind: task.kind,
+        milestone: task.milestone,
         notes: task.notes,
         parentId: task.parentId,
         priority: task.priority,
@@ -475,6 +478,42 @@ export type ReminderEvent = {
   reminder: Reminder;
   task: Task;
 };
+
+export type ScheduledReminderEvent = ReminderEvent & {
+  notifyAt: Date;
+};
+
+export function getScheduledReminderEvents(
+  tasks: readonly Task[],
+  from: Date,
+  until: Date,
+): ScheduledReminderEvent[] {
+  return tasks.flatMap((task) => {
+    if (task.completedAt || task.deletedAt || !task.dueDate || !task.dueTime) return [];
+    const reminders = task.reminders.length
+      ? task.reminders
+      : task.reminderMinutes === null
+        ? []
+        : [createReminder(task.reminderMinutes)];
+    return reminders.flatMap((reminder) => {
+      const referenceTime =
+        reminder.reference === 'end' && task.endTime ? task.endTime : task.dueTime;
+      const referenceDate =
+        reminder.reference === 'end' ? (task.endDate ?? task.dueDate) : task.dueDate;
+      const scheduledAt = zonedDateTimeToDate(referenceDate!, referenceTime!, task.timeZone);
+      const notifyAt = new Date(scheduledAt.getTime() - reminder.offsetMinutes * 60_000);
+      if (notifyAt <= from || notifyAt > until) return [];
+      return [
+        {
+          key: `${task.id}:${reminder.id}:${task.dueDate}:${task.dueTime}`,
+          notifyAt,
+          reminder,
+          task,
+        },
+      ];
+    });
+  });
+}
 
 export function getPendingReminderEvents(
   tasks: readonly Task[],
@@ -885,7 +924,35 @@ function shiftEndDate(dueDate: string, endDate: string | null, nextDueDate: stri
 export function parseBackup(text: string): BackupPayload {
   const value: unknown = JSON.parse(text);
 
-  if (isBackupPayload(value)) return value;
+  if (isBackupPayload(value)) {
+    const fallbackCategoryId = value.categories[0]?.id ?? '';
+    return {
+      ...value,
+      focusSessions: value.focusSessions.map((session) => ({
+        ...session,
+        interruptions: session.interruptions ?? 0,
+        stage: session.stage ?? 1,
+      })),
+      habits: value.habits.map((habit) => ({
+        ...habit,
+        goalHistory: habit.goalHistory ?? [],
+        pausedAt: habit.pausedAt ?? null,
+        reminderTime: habit.reminderTime ?? null,
+        skippedDates: habit.skippedDates ?? [],
+      })),
+      sections: value.sections.map((section) => ({
+        ...section,
+        wipLimit: section.wipLimit ?? null,
+      })),
+      settings: { ...defaultAppSettings, ...value.settings },
+      tasks: value.tasks.map((task, order) => normalizeBackupTask(task, order, fallbackCategoryId)),
+      templates: value.templates.map((template) => ({
+        ...template,
+        draft: normalizeBackupDraft(template.draft, fallbackCategoryId),
+      })),
+      version: 5,
+    };
+  }
 
   if (isLegacyBackup(value)) {
     const candidate = value as Record<string, unknown>;
@@ -938,7 +1005,7 @@ export function parseBackup(text: string): BackupPayload {
       tags: candidate.tags as BackupPayload['tags'],
       tasks,
       templates,
-      version: 4,
+      version: 5,
     };
     if (isBackupPayload(normalized)) return normalized;
   }
@@ -966,13 +1033,16 @@ function normalizeBackupDraft(draft: Partial<TaskDraft>, categoryId: string): Ta
     allDay: task.allDay,
     attachments: task.attachments,
     categoryId: task.categoryId,
+    dependencyIds: task.dependencyIds,
     dueDate: task.dueDate,
     dueTime: task.dueTime,
     duration: task.duration,
     endDate: task.endDate,
     endTime: task.endTime,
+    estimateMinutes: task.estimateMinutes,
     important: task.important,
     kind: task.kind,
+    milestone: task.milestone,
     notes: task.notes,
     parentId: task.parentId,
     priority: task.priority,
@@ -1022,6 +1092,7 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
     completedAt: task.completedAt ?? null,
     createdAt: task.createdAt ?? new Date().toISOString(),
     deletedAt: task.deletedAt ?? null,
+    dependencyIds: task.dependencyIds ?? [],
     dueDate: task.dueDate ?? null,
     dueTime,
     duration,
@@ -1031,9 +1102,11 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
       (dueTime
         ? format(addMinutes(parseISO(`2000-01-01T${dueTime}:00`), duration), 'HH:mm')
         : null),
+    estimateMinutes: Math.max(0, Math.round(task.estimateMinutes ?? duration)),
     id: task.id ?? createId('task'),
     important: task.important ?? task.priority === 'high',
     kind: task.kind ?? 'task',
+    milestone: task.milestone ?? false,
     notes: task.notes ?? '',
     order: task.order ?? order,
     parentId: task.parentId ?? null,

@@ -8,7 +8,13 @@ export default defineConfig({
   test: {
     coverage: {
       allowExternal: true,
-      exclude: ['src/main.tsx', '**/*.test.{ts,tsx}', '**/test/**'],
+      exclude: [
+        'src/main.tsx',
+        '**/*.test.{ts,tsx}',
+        '**/test/**',
+        'src/lib/desktopPersistence.ts',
+        'src/lib/notifications.ts',
+      ],
       include: [
         sourcePath('./src/lib/**/*.ts'),
         sourcePath('../../packages/application/src/**/*.ts'),

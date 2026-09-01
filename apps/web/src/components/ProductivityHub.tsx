@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+import { useAppDialog } from './AppDialog';
 import { FocusTimer, HabitTracker } from './productivity/FocusHabits';
 import type { ProductivityHubProps } from './productivity/types';
 
@@ -62,16 +63,31 @@ export function ProductivityHub(props: ProductivityHubProps) {
 }
 
 function KanbanBoard(props: ProductivityHubProps) {
+  const dialog = useAppDialog();
   const [categoryId, setCategoryId] = useState(props.categories[0]?.id ?? '');
+  const [swimlane, setSwimlane] = useState<'none' | 'priority'>('none');
   const categoryTasks = props.tasks.filter((task) => task.categoryId === categoryId);
   const columns = [
-    { id: null, name: '未分区', order: -1 },
+    { id: null, name: '未分区', order: -1, wipLimit: null },
     ...props.sections.filter((section) => section.categoryId === categoryId),
   ];
 
   const createSection = async () => {
-    const name = window.prompt('请输入分区名称.');
+    const name = await dialog.prompt({ label: '分区名称', title: '新建分区' });
     if (name?.trim()) await props.onAddSection(categoryId, name.trim());
+  };
+
+  const setWipLimit = async (sectionId: string, current: number | null | undefined) => {
+    const value = await dialog.prompt({
+      initialValue: current ? String(current) : '',
+      label: '同时进行任务上限',
+      placeholder: '留空表示不限制',
+      required: false,
+      title: '设置在制任务限制',
+    });
+    if (value === null) return;
+    const limit = value.trim() ? Math.max(1, Number(value) || 1) : null;
+    await props.onUpdateSection?.(sectionId, { wipLimit: limit });
   };
 
   return (
@@ -93,6 +109,14 @@ function KanbanBoard(props: ProductivityHubProps) {
               </option>
             ))}
           </select>
+          <select
+            aria-label="看板泳道"
+            onChange={(event) => setSwimlane(event.target.value as 'none' | 'priority')}
+            value={swimlane}
+          >
+            <option value="none">无泳道</option>
+            <option value="priority">按优先级</option>
+          </select>
           <button className="secondary-button" onClick={() => void createSection()} type="button">
             <Plus size={15} />
             新建分区
@@ -102,19 +126,29 @@ function KanbanBoard(props: ProductivityHubProps) {
       <div className="kanban-board">
         {columns.map((column) => {
           const tasks = categoryTasks.filter((task) => task.sectionId === column.id);
+          const atLimit = Boolean(column.wipLimit && tasks.length >= column.wipLimit);
+          const groups =
+            swimlane === 'priority'
+              ? (['high', 'medium', 'low', 'none'] as Priority[]).map((priority) => ({
+                  label: priorityLabels[priority],
+                  tasks: tasks.filter((task) => task.priority === priority),
+                }))
+              : [{ label: '', tasks }];
           return (
             <article
-              className="kanban-column"
+              className={`kanban-column${atLimit ? ' wip-reached' : ''}`}
               key={column.id ?? 'none'}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 const id = event.dataTransfer.getData('text/task-id');
-                if (id) void props.onUpdateTask(id, { sectionId: column.id });
+                if (!id || (atLimit && !tasks.some((task) => task.id === id))) return;
+                void props.onUpdateTask(id, { categoryId, sectionId: column.id });
               }}
             >
               <header>
                 <strong>{column.name}</strong>
                 <span title={`${tasks.length} 项任务`}>{tasks.length}</span>
+                {column.wipLimit && <em title="在制任务限制">/{column.wipLimit}</em>}
                 <button
                   aria-label={`在 ${column.name} 新建任务`}
                   onClick={() => props.onCreateTask({ categoryId, sectionId: column.id })}
@@ -124,42 +158,68 @@ function KanbanBoard(props: ProductivityHubProps) {
                   <Plus size={13} />
                 </button>
                 {column.id && (
-                  <button
-                    aria-label={`删除分区 ${column.name}`}
-                    onClick={() => void props.onDeleteSection(column.id!)}
-                    type="button"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <>
+                    <button
+                      aria-label={`设置 ${column.name} 的任务限制`}
+                      onClick={() => void setWipLimit(column.id!, column.wipLimit)}
+                      title="设置在制任务限制"
+                      type="button"
+                    >
+                      <Hourglass size={13} />
+                    </button>
+                    <button
+                      aria-label={`删除分区 ${column.name}`}
+                      onClick={async () => {
+                        if (
+                          await dialog.confirm({
+                            confirmText: '删除分区',
+                            danger: true,
+                            description: '分区中的任务会保留并移到未分区.',
+                            title: `确定删除分区 "${column.name}" 吗?`,
+                          })
+                        )
+                          await props.onDeleteSection(column.id!);
+                      }}
+                      type="button"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </>
                 )}
               </header>
               <div>
-                {tasks.map((task) => (
-                  <button
-                    className="kanban-card"
-                    draggable
-                    key={task.id}
-                    onClick={() => props.onEdit(task)}
-                    onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
-                    type="button"
-                  >
-                    <span className={`priority-dot ${task.priority}`} />
-                    <strong>{task.title}</strong>
-                    <small>
-                      {task.dueDate ?? '未安排日期'}
-                      {task.dueTime ? ` ${task.dueTime}` : ''}
-                    </small>
-                    {task.subtasks.length > 0 && (
-                      <span className="kanban-progress">
-                        <i
-                          style={{
-                            width: `${(taskProgress(task).completed / taskProgress(task).total) * 100}%`,
-                          }}
-                        />
-                        {taskProgress(task).completed}/{taskProgress(task).total}
-                      </span>
-                    )}
-                  </button>
+                {groups.map((group) => (
+                  <div className="kanban-swimlane" key={group.label || 'all'}>
+                    {group.label && group.tasks.length > 0 && <h4>{group.label}</h4>}
+                    {group.tasks.map((task) => (
+                      <button
+                        className="kanban-card"
+                        draggable
+                        key={task.id}
+                        onClick={() => props.onEdit(task)}
+                        onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
+                        type="button"
+                      >
+                        <span className={`priority-dot ${task.priority}`} />
+                        <strong>{task.title}</strong>
+                        <small>
+                          {task.dueDate ?? '未安排日期'}
+                          {task.dueTime ? ` ${task.dueTime}` : ''}
+                        </small>
+                        {task.milestone && <b className="milestone-chip">里程碑</b>}
+                        {task.subtasks.length > 0 && (
+                          <span className="kanban-progress">
+                            <i
+                              style={{
+                                width: `${(taskProgress(task).completed / taskProgress(task).total) * 100}%`,
+                              }}
+                            />
+                            {taskProgress(task).completed}/{taskProgress(task).total}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 ))}
                 {tasks.length === 0 && <p className="column-empty">拖动任务到这里</p>}
               </div>
@@ -254,12 +314,25 @@ function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task
                 : 1,
             );
             return (
-              <button key={task.id} onClick={() => onEdit(task)} type="button">
+              <button
+                className={`${task.milestone ? 'timeline-milestone' : ''}${
+                  task.dependencyIds?.some(
+                    (id) => !tasks.find((item) => item.id === id)?.completedAt,
+                  )
+                    ? ' timeline-blocked'
+                    : ''
+                }`}
+                key={task.id}
+                onClick={() => onEdit(task)}
+                type="button"
+              >
                 <span>
                   {task.title}
                   <small>
                     {task.dueDate}
                     {task.endDate ? ` - ${task.endDate}` : ''}
+                    {task.milestone ? ' · 里程碑' : ''}
+                    {task.dependencyIds?.length ? ` · ${task.dependencyIds.length} 项前置` : ''}
                   </small>
                 </span>
                 <i
@@ -281,7 +354,7 @@ function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task
 
 function EisenhowerMatrix(props: ProductivityHubProps) {
   const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const [urgentDays, setUrgentDays] = useState(1);
+  const urgentDays = props.settings.matrixUrgentDays;
   const urgentKey = format(addDays(new Date(), urgentDays - 1), 'yyyy-MM-dd');
   const quadrants = [
     { hint: '立即做', important: true, label: '重要且紧急', urgent: true },
@@ -300,7 +373,11 @@ function EisenhowerMatrix(props: ProductivityHubProps) {
         <label className="matrix-urgency">
           紧急范围
           <select
-            onChange={(event) => setUrgentDays(Number(event.target.value))}
+            onChange={(event) =>
+              void props.onUpdateSettings?.({
+                matrixUrgentDays: Number(event.target.value) as 1 | 3 | 7,
+              })
+            }
             value={urgentDays}
           >
             <option value={1}>今天到期</option>
@@ -370,10 +447,15 @@ function EisenhowerMatrix(props: ProductivityHubProps) {
 }
 
 function CountdownPanel(props: ProductivityHubProps) {
+  const dialog = useAppDialog();
   const createCountdown = async () => {
-    const title = window.prompt('请输入倒数日名称.');
+    const title = await dialog.prompt({ label: '倒数日名称', title: '添加倒数日' });
     if (!title?.trim()) return;
-    const date = window.prompt('请输入日期, 格式为 YYYY-MM-DD.');
+    const date = await dialog.prompt({
+      label: '日期',
+      placeholder: 'YYYY-MM-DD',
+      title: '设置日期',
+    });
     if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) await props.onAddCountdown(title.trim(), date);
   };
   return (

@@ -1,4 +1,4 @@
-import type { Task } from '@easydo/domain';
+import type { Habit, Task } from '@easydo/domain';
 import { getPendingReminderEvents } from '@easydo/application';
 import { useEffect, useRef } from 'react';
 
@@ -6,9 +6,11 @@ import {
   hasReminderPermission,
   requestLocalReminderPermission,
   sendLocalReminder,
+  syncScheduledHabitReminders,
+  syncScheduledTaskReminders,
 } from '../lib/notifications';
 
-export function useTaskReminders(tasks: Task[]): void {
+export function useTaskReminders(tasks: Task[], habits: Habit[] = []): void {
   const notifiedKeys = useRef(loadNotifiedKeys());
 
   useEffect(() => {
@@ -30,6 +32,8 @@ export function useTaskReminders(tasks: Task[]): void {
 
     const start = async () => {
       if (!(await hasReminderPermission()) || !active) return;
+      await syncScheduledTaskReminders(tasks);
+      await syncScheduledHabitReminders(habits);
       check();
       interval = window.setInterval(check, 15_000);
     };
@@ -45,7 +49,7 @@ export function useTaskReminders(tasks: Task[]): void {
       window.removeEventListener('focus', check);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [tasks]);
+  }, [habits, tasks]);
 }
 
 const reminderStorageKey = 'easydo-notified-reminders';

@@ -1,6 +1,8 @@
 import type { Category, FilterCriteria, Priority, SavedFilter, Tag } from '@easydo/domain';
 import { Save, SlidersHorizontal, Trash2, X } from 'lucide-react';
 
+import { useAppDialog } from './AppDialog';
+
 type FilterPanelProps = {
   categories: Category[];
   criteria: FilterCriteria;
@@ -22,6 +24,7 @@ export function FilterPanel({
   onSave,
   tags,
 }: FilterPanelProps) {
+  const dialog = useAppDialog();
   const update = (patch: Partial<FilterCriteria>) => onApply({ ...criteria, ...patch });
 
   return (
@@ -145,8 +148,8 @@ export function FilterPanel({
           重置
         </button>
         <button
-          onClick={() => {
-            const name = window.prompt('请输入智能清单名称.');
+          onClick={async () => {
+            const name = await dialog.prompt({ label: '清单名称', title: '保存智能清单' });
             if (name?.trim()) void onSave(name.trim(), criteria);
           }}
           type="button"

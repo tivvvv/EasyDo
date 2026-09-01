@@ -1,5 +1,7 @@
 import type {
+  ActivityRecord,
   Category,
+  FocusSession,
   Priority,
   RecurrenceEditScope,
   Section,
@@ -16,6 +18,8 @@ import {
   getLocalTimeZone,
   priorityLabels,
   taskKindLabels,
+  taskActualMinutes,
+  taskBlockingDependencies,
 } from '@easydo/domain';
 import {
   ArrowDown,
@@ -32,6 +36,8 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
+
+import { useAppDialog } from './AppDialog';
 
 type TaskDialogProps = {
   categories: Category[];
@@ -51,6 +57,9 @@ type TaskDialogProps = {
   tags: Tag[];
   task: Task | null;
   templates: TaskTemplate[];
+  tasks?: Task[];
+  activities?: ActivityRecord[];
+  focusSessions?: FocusSession[];
 };
 
 const emptyDraft: TaskDraft = {
@@ -95,7 +104,11 @@ export function TaskDialog({
   tags,
   task,
   templates,
+  tasks = [],
+  activities = [],
+  focusSessions = [],
 }: TaskDialogProps) {
+  const dialog = useAppDialog();
   const titleId = useId();
   const [draft, setDraft] = useState<TaskDraft>(() =>
     task
@@ -105,11 +118,14 @@ export function TaskDialog({
           categoryId: task.categoryId,
           dueDate: task.dueDate,
           dueTime: task.dueTime,
+          dependencyIds: task.dependencyIds ?? [],
           duration: task.duration,
           endDate: task.endDate,
           endTime: task.endTime,
           kind: task.kind,
           important: task.important,
+          estimateMinutes: task.estimateMinutes ?? task.duration,
+          milestone: task.milestone ?? false,
           notes: task.notes,
           parentId: task.parentId,
           priority: task.priority,
@@ -137,6 +153,7 @@ export function TaskDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [recurrenceScope, setRecurrenceScope] = useState<RecurrenceEditScope>('future');
+  const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -198,7 +215,7 @@ export function TaskDialog({
         aria-label={task ? `编辑任务: ${task.title}` : undefined}
         aria-labelledby={task ? undefined : titleId}
         aria-modal="true"
-        className="task-dialog"
+        className={`task-dialog${task ? ' task-detail-drawer' : ''}`}
         role="dialog"
       >
         <header className="dialog-header">
@@ -212,6 +229,22 @@ export function TaskDialog({
         </header>
 
         <div className="dialog-body">
+          {task && (
+            <div className="task-insight-strip">
+              <span>
+                <strong>{draft.estimateMinutes ?? draft.duration}</strong>
+                分钟预计
+              </span>
+              <span>
+                <strong>{taskActualMinutes(task.id, focusSessions)}</strong>
+                分钟专注
+              </span>
+              <span className={taskBlockingDependencies(task, tasks).length ? 'warning' : ''}>
+                <strong>{taskBlockingDependencies(task, tasks).length}</strong>
+                项前置未完成
+              </span>
+            </div>
+          )}
           {templates.length > 0 && !task && (
             <label className="field full-field template-picker">
               <span>从模板创建</span>
@@ -363,6 +396,21 @@ export function TaskDialog({
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="field">
+              <span>工作量估算</span>
+              <input
+                min="1"
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    estimateMinutes: Math.max(1, Number(event.target.value) || 1),
+                  })
+                }
+                step="5"
+                type="number"
+                value={draft.estimateMinutes ?? draft.duration}
+              />
             </label>
             <label className="field">
               <span>分类</span>
@@ -724,10 +772,51 @@ export function TaskDialog({
           )}
 
           <fieldset className="choice-field subtask-field">
-            <legend>子任务</legend>
-            <div className="subtask-editor">
+            <legend>
+              子任务
+              <span className="subtask-toolbar">
+                {draft.subtasks.length > 0 && (
+                  <>
+                    <button
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          subtasks: draft.subtasks.map((item) => ({
+                            ...item,
+                            completedAt: new Date().toISOString(),
+                          })),
+                        })
+                      }
+                      type="button"
+                    >
+                      全部完成
+                    </button>
+                    <button onClick={() => setSubtasksCollapsed((value) => !value)} type="button">
+                      {subtasksCollapsed ? '展开' : '收起'}
+                    </button>
+                  </>
+                )}
+              </span>
+            </legend>
+            <div className={`subtask-editor${subtasksCollapsed ? ' collapsed' : ''}`}>
               {draft.subtasks.map((subtask, index) => (
-                <div className="subtask-edit-row" key={subtask.id}>
+                <div
+                  className="subtask-edit-row"
+                  draggable
+                  key={subtask.id}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragStart={(event) =>
+                    event.dataTransfer.setData('text/subtask-index', String(index))
+                  }
+                  onDrop={(event) => {
+                    const sourceIndex = Number(event.dataTransfer.getData('text/subtask-index'));
+                    if (Number.isInteger(sourceIndex) && sourceIndex !== index)
+                      setDraft({
+                        ...draft,
+                        subtasks: moveItem(draft.subtasks, sourceIndex, index),
+                      });
+                  }}
+                >
                   <button
                     aria-label={`${subtask.completedAt ? '恢复' : '完成'}子任务 ${index + 1}`}
                     className={`subtask-check${subtask.completedAt ? ' checked' : ''}`}
@@ -920,7 +1009,45 @@ export function TaskDialog({
               />
               标记为重要任务
             </label>
+            <label className="important-toggle">
+              <input
+                checked={draft.milestone ?? false}
+                onChange={(event) => setDraft({ ...draft, milestone: event.target.checked })}
+                type="checkbox"
+              />
+              标记为里程碑
+            </label>
           </fieldset>
+
+          {tasks.some((item) => item.id !== task?.id && !item.deletedAt) && (
+            <fieldset className="choice-field dependency-field">
+              <legend>前置任务</legend>
+              <p className="field-hint">前置任务完成后, 当前任务才适合开始.</p>
+              <div>
+                {tasks
+                  .filter((item) => item.id !== task?.id && !item.deletedAt)
+                  .slice(0, 30)
+                  .map((item) => (
+                    <label key={item.id}>
+                      <input
+                        checked={(draft.dependencyIds ?? []).includes(item.id)}
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            dependencyIds: event.target.checked
+                              ? [...(draft.dependencyIds ?? []), item.id]
+                              : (draft.dependencyIds ?? []).filter((id) => id !== item.id),
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      <span>{item.title}</span>
+                      {item.completedAt && <small>已完成</small>}
+                    </label>
+                  ))}
+              </div>
+            </fieldset>
+          )}
 
           <fieldset className="choice-field attachment-field">
             <legend>
@@ -1011,6 +1138,28 @@ export function TaskDialog({
             </datalist>
           </label>
 
+          {task && (
+            <section className="task-activity-timeline">
+              <h3>任务动态</h3>
+              {activities.filter((item) => item.taskId === task.id).length ? (
+                activities
+                  .filter((item) => item.taskId === task.id)
+                  .slice(0, 12)
+                  .map((item) => (
+                    <article key={item.id}>
+                      <span />
+                      <div>
+                        <strong>{activityLabel(item.action)}</strong>
+                        <time>{new Date(item.createdAt).toLocaleString('zh-CN')}</time>
+                      </div>
+                    </article>
+                  ))
+              ) : (
+                <p className="field-hint">修改和完成记录会显示在这里.</p>
+              )}
+            </section>
+          )}
+
           <fieldset className="choice-field">
             <legend>标签</legend>
             <div className="tag-choices">
@@ -1054,7 +1203,14 @@ export function TaskDialog({
             <button
               className="danger-button"
               onClick={async () => {
-                if (window.confirm(`确定删除任务 "${task.title}" 吗?`)) {
+                if (
+                  await dialog.confirm({
+                    confirmText: '移到回收站',
+                    danger: true,
+                    description: '任务可以稍后从回收站恢复.',
+                    title: `确定删除任务 "${task.title}" 吗?`,
+                  })
+                ) {
                   await onDelete(task.id);
                   onClose();
                 }
@@ -1069,8 +1225,12 @@ export function TaskDialog({
           <button
             className="secondary-button"
             disabled={!draft.title.trim()}
-            onClick={() => {
-              const name = window.prompt('请输入模板名称.', draft.title.trim());
+            onClick={async () => {
+              const name = await dialog.prompt({
+                initialValue: draft.title.trim(),
+                label: '模板名称',
+                title: '保存任务模板',
+              });
               if (name?.trim()) void onSaveTemplate(name.trim(), draft);
             }}
             type="button"
@@ -1101,6 +1261,17 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   const [item] = next.splice(from, 1);
   if (item !== undefined) next.splice(to, 0, item);
   return next;
+}
+
+function activityLabel(action: ActivityRecord['action']): string {
+  return {
+    complete: '完成了任务',
+    create: '创建了任务',
+    duplicate: '创建了副本',
+    restore: '恢复了任务',
+    trash: '移到了回收站',
+    update: '更新了任务',
+  }[action];
 }
 
 function formatReminder(minutes: number): string {

@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { taskProgress } from '@easydo/domain';
 
 import { fromDateKey } from '../lib/calendar';
+import { useAppDialog } from './AppDialog';
 
 type TaskListProps = {
   categories: Category[];
@@ -60,7 +61,12 @@ export function TaskList({
   const orderedTasks = sortForView(tasks, settings.taskSort);
   const active = orderedTasks.filter((task) => !task.completedAt);
   const completed = orderedTasks.filter((task) => task.completedAt);
-  const activeGroups = groupForView(active, settings.taskGrouping, categoryMap);
+  const [displayLimit, setDisplayLimit] = useState(300);
+  const activeGroups = groupForView(
+    active.slice(0, displayLimit),
+    settings.taskGrouping,
+    categoryMap,
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchCategory, setBatchCategory] = useState('');
   const [batchDate, setBatchDate] = useState('');
@@ -228,6 +234,15 @@ export function TaskList({
               ))}
             </div>
           ))}
+          {active.length > displayLimit && (
+            <button
+              className="task-list-load-more"
+              onClick={() => setDisplayLimit((value) => value + 300)}
+              type="button"
+            >
+              继续显示 {Math.min(300, active.length - displayLimit)} 项
+            </button>
+          )}
           {completed.length > 0 && (
             <details className="completed-group">
               <summary>已完成 - {completed.length}</summary>
@@ -289,6 +304,7 @@ function TaskRow({
   tagMap,
   task,
 }: TaskRowProps) {
+  const dialog = useAppDialog();
   const progress = taskProgress(task);
   return (
     <article
@@ -400,9 +416,16 @@ function TaskRow({
           </button>
           <button
             className="danger"
-            onClick={(event) => {
+            onClick={async (event) => {
               closeRowMenu(event.currentTarget);
-              if (window.confirm(`确定将 "${task.title}" 移到回收站吗?`)) void onTrash(task.id);
+              if (
+                await dialog.confirm({
+                  confirmText: '移到回收站',
+                  danger: true,
+                  title: `确定将 "${task.title}" 移到回收站吗?`,
+                })
+              )
+                await onTrash(task.id);
             }}
             role="menuitem"
             type="button"

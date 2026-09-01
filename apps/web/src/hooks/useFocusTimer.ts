@@ -6,7 +6,9 @@ type TimerStatus = 'idle' | 'paused' | 'running';
 
 type TimerState = {
   elapsedSeconds: number;
+  interruptions: number;
   mode: FocusTimerMode;
+  round: number;
   segmentStartedAt: number | null;
   sessionStartedAt: number | null;
   status: TimerStatus;
@@ -18,17 +20,24 @@ type FocusTimerOptions = {
   onComplete: (session: {
     durationMinutes: number;
     endedAt: string;
+    interruptions: number;
+    mode: 'pomodoro' | 'stopwatch';
+    stage: number;
     startedAt: string;
     taskId: string | null;
   }) => Promise<void>;
   shortBreakMinutes: number;
+  autoStartBreak?: boolean;
+  focusRounds?: number;
 };
 
 const storageKey = 'easydo.focus-timer.v1';
 
 const initialState: TimerState = {
   elapsedSeconds: 0,
+  interruptions: 0,
   mode: 'focus',
+  round: 1,
   segmentStartedAt: null,
   sessionStartedAt: null,
   status: 'idle',
@@ -73,7 +82,7 @@ export function useFocusTimer(options: FocusTimerOptions) {
 
   useEffect(() => {
     if (
-      state.mode !== 'focus' ||
+      state.mode === 'stopwatch' ||
       state.status !== 'running' ||
       remainingSeconds !== 0 ||
       !state.sessionStartedAt ||
@@ -82,25 +91,44 @@ export function useFocusTimer(options: FocusTimerOptions) {
       return;
     }
     completingRef.current = true;
+    if (state.mode === 'shortBreak') {
+      queueMicrotask(() =>
+        setState((current) => ({
+          ...initialState,
+          mode: 'focus',
+          round: current.round,
+          taskId: current.taskId,
+        })),
+      );
+      completingRef.current = false;
+      return;
+    }
     const endedAt = new Date().toISOString();
+    const nextRound = state.round >= (options.focusRounds ?? 4) ? 1 : state.round + 1;
     void completeRef
       .current({
         durationMinutes: options.focusMinutes,
         endedAt,
+        interruptions: state.interruptions,
+        mode: 'pomodoro',
+        stage: state.round,
         startedAt: new Date(state.sessionStartedAt).toISOString(),
         taskId: state.taskId || null,
       })
       .finally(() => {
+        const timestamp = Date.now();
         setState((current) => ({
-          ...current,
-          elapsedSeconds: 0,
-          segmentStartedAt: null,
-          sessionStartedAt: null,
-          status: 'idle',
+          ...initialState,
+          mode: 'shortBreak',
+          round: nextRound,
+          segmentStartedAt: options.autoStartBreak ? timestamp : null,
+          sessionStartedAt: options.autoStartBreak ? timestamp : null,
+          status: options.autoStartBreak ? 'running' : 'idle',
+          taskId: current.taskId,
         }));
         completingRef.current = false;
       });
-  }, [options.focusMinutes, remainingSeconds, state]);
+  }, [options.autoStartBreak, options.focusMinutes, options.focusRounds, remainingSeconds, state]);
 
   const startOrPause = useCallback(() => {
     setNow(Date.now());
@@ -131,14 +159,41 @@ export function useFocusTimer(options: FocusTimerOptions) {
     setState((current) => ({
       ...current,
       elapsedSeconds: 0,
+      interruptions: 0,
       segmentStartedAt: null,
       sessionStartedAt: null,
       status: 'idle',
     }));
   }, []);
 
+  const addInterruption = useCallback(() => {
+    setState((current) => ({ ...current, interruptions: current.interruptions + 1 }));
+  }, []);
+
+  const finish = useCallback(async () => {
+    if (!state.sessionStartedAt || elapsedSeconds < 60 || state.mode === 'shortBreak') {
+      reset();
+      return;
+    }
+    await completeRef.current({
+      durationMinutes: Math.max(1, Math.round(elapsedSeconds / 60)),
+      endedAt: new Date().toISOString(),
+      interruptions: state.interruptions,
+      mode: state.mode === 'stopwatch' ? 'stopwatch' : 'pomodoro',
+      stage: state.round,
+      startedAt: new Date(state.sessionStartedAt).toISOString(),
+      taskId: state.taskId || null,
+    });
+    reset();
+  }, [elapsedSeconds, reset, state]);
+
   const setMode = useCallback((mode: FocusTimerMode) => {
-    setState((current) => ({ ...initialState, mode, taskId: current.taskId }));
+    setState((current) => ({
+      ...initialState,
+      mode,
+      round: current.round,
+      taskId: current.taskId,
+    }));
   }, []);
 
   const setTaskId = useCallback((taskId: string) => {
@@ -148,16 +203,30 @@ export function useFocusTimer(options: FocusTimerOptions) {
   return useMemo(
     () => ({
       elapsedSeconds,
+      addInterruption,
+      finish,
+      interruptions: state.interruptions,
       mode: state.mode,
       remainingSeconds,
       reset,
+      round: state.round,
       running: state.status === 'running',
       setMode,
       setTaskId,
       startOrPause,
       taskId: state.taskId,
     }),
-    [elapsedSeconds, remainingSeconds, reset, setMode, setTaskId, startOrPause, state],
+    [
+      addInterruption,
+      elapsedSeconds,
+      finish,
+      remainingSeconds,
+      reset,
+      setMode,
+      setTaskId,
+      startOrPause,
+      state,
+    ],
   );
 }
 
@@ -174,7 +243,9 @@ function loadState(): TimerState {
     }
     return {
       elapsedSeconds: Number.isFinite(value.elapsedSeconds) ? Number(value.elapsedSeconds) : 0,
+      interruptions: Number.isFinite(value.interruptions) ? Number(value.interruptions) : 0,
       mode: value.mode as FocusTimerMode,
+      round: Number.isFinite(value.round) ? Math.max(1, Number(value.round)) : 1,
       segmentStartedAt:
         value.segmentStartedAt === null || Number.isFinite(value.segmentStartedAt)
           ? (value.segmentStartedAt ?? null)

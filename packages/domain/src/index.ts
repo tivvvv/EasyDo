@@ -43,7 +43,9 @@ export type CalendarDensity = 'comfortable' | 'compact';
 
 export type AppSettings = {
   agendaDays: 7 | 14 | 30;
+  autoStartBreak: boolean;
   calendarDensity: CalendarDensity;
+  dailyCapacityMinutes: number;
   defaultCalendarMode:
     'agenda' | 'day' | 'fiveDay' | 'month' | 'multiWeek' | 'threeDay' | 'week' | 'year';
   id: 'default';
@@ -53,6 +55,9 @@ export type AppSettings = {
   taskSort: 'created' | 'date' | 'manual' | 'priority' | 'updated';
   theme: 'dark' | 'light' | 'system';
   pomodoroMinutes: number;
+  focusRounds: number;
+  matrixUrgentDays: 1 | 3 | 7;
+  whiteNoise: 'brown' | 'none' | 'rain';
   weekStartsOn: 0 | 1;
   workdayEnd: number;
   workdayStart: number;
@@ -81,6 +86,7 @@ export type Task = {
   completedAt: string | null;
   createdAt: string;
   deletedAt: string | null;
+  dependencyIds?: string[];
   dueDate: string | null;
   dueTime: string | null;
   duration: number;
@@ -88,7 +94,9 @@ export type Task = {
   endTime: string | null;
   id: string;
   important: boolean;
+  estimateMinutes?: number;
   kind: TaskKind;
+  milestone?: boolean;
   notes: string;
   parentId: string | null;
   priority: Priority;
@@ -120,6 +128,12 @@ export type Section = {
   id: string;
   name: string;
   order: number;
+  wipLimit?: number | null;
+};
+
+export type HabitGoalChange = {
+  changedAt: string;
+  target: number;
 };
 
 export type Habit = {
@@ -130,12 +144,28 @@ export type Habit = {
   id: string;
   logs: string[];
   name: string;
+  goalHistory?: HabitGoalChange[];
+  pausedAt?: string | null;
+  reminderTime?: string | null;
+  skippedDates?: string[];
   target: number;
   weekDays: number[];
 };
 
 export type HabitPatch = Partial<
-  Pick<Habit, 'archivedAt' | 'color' | 'frequency' | 'name' | 'target' | 'weekDays'>
+  Pick<
+    Habit,
+    | 'archivedAt'
+    | 'color'
+    | 'frequency'
+    | 'goalHistory'
+    | 'name'
+    | 'pausedAt'
+    | 'reminderTime'
+    | 'skippedDates'
+    | 'target'
+    | 'weekDays'
+  >
 >;
 
 export type FocusSession = {
@@ -143,8 +173,10 @@ export type FocusSession = {
   durationMinutes: number;
   endedAt: string;
   id: string;
+  interruptions?: number;
   mode: 'pomodoro' | 'stopwatch';
   startedAt: string;
+  stage?: number;
   taskId: string | null;
 };
 
@@ -222,7 +254,8 @@ export type TaskDraft = Pick<
   | 'tagIds'
   | 'timeZone'
   | 'title'
->;
+> &
+  Partial<Pick<Task, 'dependencyIds' | 'estimateMinutes' | 'milestone'>>;
 
 export type TaskPatch = Partial<TaskDraft>;
 
@@ -240,7 +273,7 @@ export type BackupPayload = {
   tags: Tag[];
   templates: TaskTemplate[];
   tasks: Task[];
-  version: 4;
+  version: 4 | 5;
 };
 
 export const defaultFilterCriteria: FilterCriteria = {
@@ -254,7 +287,9 @@ export const defaultFilterCriteria: FilterCriteria = {
 
 export const defaultAppSettings: AppSettings = {
   agendaDays: 14,
+  autoStartBreak: false,
   calendarDensity: 'comfortable',
+  dailyCapacityMinutes: 480,
   defaultCalendarMode: 'month',
   id: 'default',
   showWeekends: true,
@@ -263,6 +298,9 @@ export const defaultAppSettings: AppSettings = {
   taskSort: 'manual',
   theme: 'system',
   pomodoroMinutes: 25,
+  focusRounds: 4,
+  matrixUrgentDays: 3,
+  whiteNoise: 'none',
   weekStartsOn: 1,
   workdayEnd: 22,
   workdayStart: 7,
@@ -386,6 +424,17 @@ export function taskProgress(task: Task): { completed: number; total: number } {
   };
 }
 
+export function taskActualMinutes(taskId: string, sessions: readonly FocusSession[]): number {
+  return sessions
+    .filter((session) => session.taskId === taskId)
+    .reduce((total, session) => total + session.durationMinutes, 0);
+}
+
+export function taskBlockingDependencies(task: Task, tasks: readonly Task[]): Task[] {
+  const dependencies = new Set(task.dependencyIds ?? []);
+  return tasks.filter((candidate) => dependencies.has(candidate.id) && !candidate.completedAt);
+}
+
 export function calculateHabitStreak(
   logs: readonly string[],
   todayKey: string,
@@ -428,7 +477,7 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
 
   const candidate = value as Partial<BackupPayload>;
   return (
-    candidate.version === 4 &&
+    (candidate.version === 4 || candidate.version === 5) &&
     Array.isArray(candidate.tasks) &&
     candidate.tasks.every(isTaskRecord) &&
     Array.isArray(candidate.categories) &&
@@ -477,17 +526,23 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
   return (
     typeof task.title === 'string' &&
     typeof task.important === 'boolean' &&
+    (task.dependencyIds === undefined ||
+      (Array.isArray(task.dependencyIds) &&
+        task.dependencyIds.every((taskId) => typeof taskId === 'string'))) &&
     Array.isArray(task.attachments) &&
     task.attachments.every(isAttachmentRecord) &&
     typeof task.allDay === 'boolean' &&
     typeof task.categoryId === 'string' &&
     Number.isFinite(task.duration) &&
     Number(task.duration) > 0 &&
+    (task.estimateMinutes === undefined ||
+      (Number.isFinite(task.estimateMinutes) && Number(task.estimateMinutes) >= 0)) &&
     isNullableString(task.dueDate) &&
     isNullableString(task.dueTime) &&
     isNullableString(task.endDate) &&
     isNullableString(task.endTime) &&
     ['event', 'note', 'task'].includes(task.kind ?? '') &&
+    (task.milestone === undefined || typeof task.milestone === 'boolean') &&
     typeof task.notes === 'string' &&
     isNullableString(task.parentId) &&
     isNullableString(task.sectionId) &&
@@ -601,6 +656,9 @@ function isSectionRecord(value: unknown): value is Section {
     typeof section.categoryId === 'string' &&
     typeof section.name === 'string' &&
     Number.isFinite(section.order) &&
+    (section.wipLimit === undefined ||
+      section.wipLimit === null ||
+      (Number.isInteger(section.wipLimit) && Number(section.wipLimit) > 0)) &&
     typeof section.createdAt === 'string'
   );
 }
@@ -616,6 +674,10 @@ function isHabitRecord(value: unknown): value is Habit {
     Number.isInteger(habit.target) &&
     Array.isArray(habit.weekDays) &&
     Array.isArray(habit.logs) &&
+    (habit.goalHistory === undefined || Array.isArray(habit.goalHistory)) &&
+    (habit.pausedAt === undefined || isNullableString(habit.pausedAt)) &&
+    (habit.reminderTime === undefined || isNullableString(habit.reminderTime)) &&
+    (habit.skippedDates === undefined || Array.isArray(habit.skippedDates)) &&
     isNullableString(habit.archivedAt) &&
     typeof habit.createdAt === 'string'
   );
@@ -629,6 +691,8 @@ function isFocusSessionRecord(value: unknown): value is FocusSession {
     isNullableString(session.taskId) &&
     ['pomodoro', 'stopwatch'].includes(session.mode ?? '') &&
     Number.isFinite(session.durationMinutes) &&
+    (session.interruptions === undefined || Number.isInteger(session.interruptions)) &&
+    (session.stage === undefined || Number.isInteger(session.stage)) &&
     typeof session.startedAt === 'string' &&
     typeof session.endedAt === 'string' &&
     typeof session.createdAt === 'string'
@@ -720,6 +784,10 @@ function isSettingsRecord(value: unknown): value is AppSettings {
     settings.id === 'default' &&
     [7, 14, 30].includes(settings.agendaDays ?? 0) &&
     ['comfortable', 'compact'].includes(settings.calendarDensity ?? '') &&
+    (settings.autoStartBreak === undefined || typeof settings.autoStartBreak === 'boolean') &&
+    (settings.dailyCapacityMinutes === undefined ||
+      (Number.isInteger(settings.dailyCapacityMinutes) &&
+        Number(settings.dailyCapacityMinutes) > 0)) &&
     ['agenda', 'day', 'fiveDay', 'month', 'multiWeek', 'threeDay', 'week', 'year'].includes(
       settings.defaultCalendarMode ?? '',
     ) &&
@@ -731,6 +799,11 @@ function isSettingsRecord(value: unknown): value is AppSettings {
     ['dark', 'light', 'system'].includes(settings.theme ?? '') &&
     Number.isInteger(settings.pomodoroMinutes) &&
     Number(settings.pomodoroMinutes) > 0 &&
+    (settings.focusRounds === undefined ||
+      (Number.isInteger(settings.focusRounds) && Number(settings.focusRounds) > 0)) &&
+    (settings.matrixUrgentDays === undefined || [1, 3, 7].includes(settings.matrixUrgentDays)) &&
+    (settings.whiteNoise === undefined ||
+      ['brown', 'none', 'rain'].includes(settings.whiteNoise)) &&
     [0, 1].includes(settings.weekStartsOn ?? -1) &&
     Number.isInteger(settings.workdayStart) &&
     Number.isInteger(settings.workdayEnd) &&

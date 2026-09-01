@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 test('创建, 搜索并完成任务', async ({ page, isMobile }) => {
   await page.goto('/');
@@ -92,8 +93,8 @@ test('管理重复任务, 子任务和回收站', async ({ page, isMobile }) => 
   await page.getByText('每日验收任务').first().click();
   await page.getByRole('button', { name: '完整编辑' }).click();
   await expect(page.getByRole('textbox', { name: '子任务 1' })).toHaveValue('检查日程');
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: '删除', exact: true }).click();
+  await page.getByRole('button', { name: '移到回收站', exact: true }).click();
   await expect(page.getByText('任务已移到回收站.')).toBeVisible();
 
   await page.getByRole('button', { name: /回收站/ }).click();
@@ -139,8 +140,9 @@ test('快速编辑, 跨天任务和智能清单', async ({ page, isMobile }) => 
 
   await page.getByRole('button', { name: '筛选' }).click();
   await page.getByLabel('日期范围').selectOption('next7');
-  page.once('dialog', (dialog) => dialog.accept('近期重点'));
   await page.getByRole('button', { name: /保存为智能清单/ }).click();
+  await page.getByLabel('清单名称').fill('近期重点');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(
     page.getByRole('complementary').getByRole('button', { exact: true, name: '近期重点' }),
   ).toBeVisible();
@@ -154,8 +156,9 @@ test('任务模板, 批量修改和撤销', async ({ page, isMobile }) => {
     .first()
     .click();
   await page.getByLabel('任务标题').fill('模板验收任务');
-  page.once('dialog', (dialog) => dialog.accept('每日模板'));
   await page.getByRole('button', { name: /保存模板/ }).click();
+  await page.getByLabel('模板名称').fill('每日模板');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByText('任务模板已保存.')).toBeVisible();
   await page.getByRole('button', { name: '取消' }).click();
   await page
@@ -212,8 +215,9 @@ test('自然语言快速添加, 多日历和任务分组', async ({ page, isMobi
 test('创建文件夹并归档分类', async ({ page, isMobile }) => {
   test.skip(isMobile, '文件夹管理流程由桌面端覆盖.');
   await page.goto('/');
-  page.once('dialog', (dialog) => dialog.accept('核心项目'));
   await page.getByRole('button', { name: '新建文件夹' }).click();
+  await page.getByLabel('文件夹名称').fill('核心项目');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('button', { name: '核心项目', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '编辑工作' }).click();
   await page.getByLabel('所属文件夹').selectOption({ label: '核心项目' });
@@ -256,8 +260,9 @@ test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => 
   await page.goto('/');
   await page.getByRole('button', { name: '效率工作台' }).click();
   await expect(page.getByRole('heading', { name: '任务看板' })).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept('待评审'));
   await page.getByRole('button', { name: '新建分区' }).click();
+  await page.getByLabel('分区名称').fill('待评审');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.locator('.kanban-column', { hasText: '待评审' })).toBeVisible();
   await page.getByRole('button', { name: '在 未分区 新建任务' }).click();
   await expect(
@@ -312,4 +317,14 @@ test('在移动端访问完整效率工具导航', async ({ page, isMobile }) =>
   await expect(page.getByRole('button', { name: '短休息' })).toBeVisible();
   await page.getByRole('button', { name: '习惯', exact: true }).click();
   await expect(page.getByLabel('新习惯名称')).toBeVisible();
+});
+
+test('核心页面没有严重可访问性问题', async ({ page, isMobile }) => {
+  test.skip(isMobile, '桌面和移动共用语义结构, 桌面端执行完整扫描.');
+  await page.goto('/');
+  const results = await new AxeBuilder({ page })
+    .disableRules(['color-contrast'])
+    .withTags(['wcag2a', 'wcag2aa'])
+    .analyze();
+  expect(results.violations.filter((item) => item.impact === 'critical')).toEqual([]);
 });

@@ -42,7 +42,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   addCategory,
   addCountdown,
@@ -71,23 +71,30 @@ import {
   updateFolder,
   updateHabit,
   updateSettings,
+  updateSection,
   updateTag,
   toggleHabitLog,
+  toggleHabitSkip,
 } from '@easydo/storage';
 import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
 
 import { taskService } from './application';
+import { useAppDialog } from './components/AppDialog';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
 import { CollectionDialog } from './components/CollectionDialog';
 import { FilterPanel } from './components/FilterPanel';
 import { QuickEditPanel } from './components/QuickEditPanel';
 import { QuickCapture } from './components/QuickCapture';
-import { ProductivityHub } from './components/ProductivityHub';
-import { TaskDialog } from './components/TaskDialog';
 import { TaskList } from './components/TaskList';
+import { getLaunchAtStartup, setLaunchAtStartup, useDesktopBridge } from './hooks/useDesktopBridge';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { requestReminderPermission, useTaskReminders } from './hooks/useTaskReminders';
 import { toDateKey } from './lib/calendar';
+import {
+  getDesktopPersistenceStatus,
+  type DesktopPersistenceStatus,
+} from './lib/desktopPersistence';
+import { isTauriRuntime } from './lib/notifications';
 import {
   getCalendarTitle,
   getViewTasks,
@@ -99,9 +106,17 @@ import './styles.css';
 
 type View = WorkspaceView;
 
+const ProductivityHub = lazy(() =>
+  import('./components/ProductivityHub').then((module) => ({ default: module.ProductivityHub })),
+);
+const TaskDialog = lazy(() =>
+  import('./components/TaskDialog').then((module) => ({ default: module.TaskDialog })),
+);
+
 const today = startOfDay(new Date());
 
 export function App() {
+  const dialog = useAppDialog();
   const data = useWorkspaceData();
   const [view, setView] = useState<View>({ kind: 'calendar' });
   const [calendarMode, setCalendarMode] = useState<CalendarMode | null>(null);
@@ -151,6 +166,8 @@ export function App() {
     setTaskDialogOpen(true);
   };
 
+  useDesktopBridge(data?.tasks.filter((task) => !task.completedAt && !task.deletedAt).length ?? 0);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -167,8 +184,17 @@ export function App() {
       }
     };
 
+    const handleQuickAdd = () =>
+      openNewTask(
+        view.kind === 'calendar' || view.kind === 'today' ? toDateKey(selectedDate) : null,
+      );
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('easydo:quick-add', handleQuickAdd);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('easydo:quick-add', handleQuickAdd);
+    };
   });
 
   const showToast = (message: string, undo = false) => {
@@ -183,7 +209,7 @@ export function App() {
     );
   };
 
-  useTaskReminders(data?.tasks ?? []);
+  useTaskReminders(data?.tasks ?? [], data?.habits ?? []);
 
   useEffect(() => {
     const theme = data?.settings.theme ?? 'system';
@@ -196,6 +222,16 @@ export function App() {
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, [data?.settings.theme]);
+
+  useEffect(() => {
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const message =
+        event.reason instanceof Error ? event.reason.message : '操作未能完成, 请稍后重试.';
+      showToast(`操作失败: ${message}`);
+    };
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => window.removeEventListener('unhandledrejection', handleRejection);
+  });
 
   if (!data) {
     return (
@@ -340,7 +376,7 @@ export function App() {
           <button
             className="folder-add-button"
             onClick={async () => {
-              const name = window.prompt('请输入文件夹名称.');
+              const name = await dialog.prompt({ label: '文件夹名称', title: '新建文件夹' });
               if (name?.trim()) {
                 await addFolder(name.trim());
                 showToast('文件夹已创建.');
@@ -362,10 +398,22 @@ export function App() {
                 setCollectionDialog({ initial: category, kind: 'category' })
               }
               onManage={async () => {
-                const name = window.prompt('修改文件夹名称, 留空将删除文件夹.', folder.name);
+                const name = await dialog.prompt({
+                  initialValue: folder.name,
+                  label: '文件夹名称',
+                  required: false,
+                  title: '管理文件夹',
+                });
                 if (name === null) return;
                 if (name.trim()) await updateFolder(folder.id, name.trim());
-                else if (window.confirm(`确定删除文件夹 "${folder.name}" 吗? 分类会保留.`))
+                else if (
+                  await dialog.confirm({
+                    confirmText: '删除文件夹',
+                    danger: true,
+                    description: '文件夹中的分类会保留.',
+                    title: `确定删除文件夹 "${folder.name}" 吗?`,
+                  })
+                )
                   await deleteFolder(folder.id);
               }}
               tasks={activeTasks}
@@ -673,6 +721,11 @@ export function App() {
               await taskService.reschedule(taskId, dueDate, dueTime);
               showToast('任务时间已调整.', true);
             }}
+            onCopy={async (taskId, dueDate, dueTime) => {
+              const copy = await taskService.duplicate(taskId);
+              await taskService.reschedule(copy.id, dueDate, dueTime);
+              showToast('已复制任务到新时间.', true);
+            }}
             onQuickEdit={setQuickEditingTask}
             onResize={async (taskId, duration) => {
               await taskService.update(taskId, { duration });
@@ -691,51 +744,56 @@ export function App() {
             tasks={filteredTasks}
           />
         ) : view.kind === 'productivity' ? (
-          <ProductivityHub
-            categories={categories}
-            countdowns={countdowns}
-            focusSessions={focusSessions}
-            habits={habits}
-            onAddCountdown={async (name, date) => {
-              await addCountdown(name, date);
-              showToast('倒数日已添加.');
-            }}
-            onAddFocusSession={async (session) => {
-              await addFocusSession(session);
-              showToast('专注记录已保存.');
-            }}
-            onAddHabit={async (name) => {
-              await addHabit(name);
-              showToast('习惯已创建.');
-            }}
-            onAddSection={async (categoryId, name) => {
-              await addSection(categoryId, name);
-              showToast('分区已创建.');
-            }}
-            onDeleteCountdown={deleteCountdown}
-            onDeleteHabit={deleteHabit}
-            onDeleteSection={deleteSection}
-            onCreateTask={(prefill) =>
-              openNewTask(prefill.dueDate ?? null, null, 30, {
-                categoryId: prefill.categoryId,
-                important: prefill.important,
-                sectionId: prefill.sectionId,
-              })
-            }
-            onEdit={(task) => {
-              setEditingTask(task);
-              setTaskDialogOpen(true);
-            }}
-            onToggleHabit={toggleHabitLog}
-            onUpdateHabit={updateHabit}
-            onUpdateTask={async (id, patch) => {
-              await taskService.update(id, patch);
-              showToast('任务已调整.', true);
-            }}
-            sections={sections}
-            settings={settings}
-            tasks={activeTasks}
-          />
+          <Suspense fallback={<PanelLoading label="正在打开效率工作台..." />}>
+            <ProductivityHub
+              categories={categories}
+              countdowns={countdowns}
+              focusSessions={focusSessions}
+              habits={habits}
+              onAddCountdown={async (name, date) => {
+                await addCountdown(name, date);
+                showToast('倒数日已添加.');
+              }}
+              onAddFocusSession={async (session) => {
+                await addFocusSession(session);
+                showToast('专注记录已保存.');
+              }}
+              onAddHabit={async (name) => {
+                await addHabit(name);
+                showToast('习惯已创建.');
+              }}
+              onAddSection={async (categoryId, name) => {
+                await addSection(categoryId, name);
+                showToast('分区已创建.');
+              }}
+              onDeleteCountdown={deleteCountdown}
+              onDeleteHabit={deleteHabit}
+              onDeleteSection={deleteSection}
+              onCreateTask={(prefill) =>
+                openNewTask(prefill.dueDate ?? null, null, 30, {
+                  categoryId: prefill.categoryId,
+                  important: prefill.important,
+                  sectionId: prefill.sectionId,
+                })
+              }
+              onEdit={(task) => {
+                setEditingTask(task);
+                setTaskDialogOpen(true);
+              }}
+              onToggleHabit={toggleHabitLog}
+              onToggleHabitSkip={toggleHabitSkip}
+              onUpdateHabit={updateHabit}
+              onUpdateSection={updateSection}
+              onUpdateSettings={updateSettings}
+              onUpdateTask={async (id, patch) => {
+                await taskService.update(id, patch);
+                showToast('任务已调整.', true);
+              }}
+              sections={sections}
+              settings={settings}
+              tasks={activeTasks}
+            />
+          </Suspense>
         ) : view.kind === 'settings' ? (
           <SettingsView
             categories={categories.length}
@@ -874,31 +932,36 @@ export function App() {
       </main>
 
       {taskDialogOpen && (
-        <TaskDialog
-          categories={categories}
-          defaultCategoryId={dialogCategoryId}
-          defaultDate={dialogDate}
-          defaultDuration={dialogDuration}
-          defaultImportant={dialogImportant}
-          defaultPriority={dialogPriority}
-          defaultSectionId={dialogSectionId}
-          defaultTime={dialogTime}
-          onClose={() => setTaskDialogOpen(false)}
-          onDelete={async (id) => {
-            await taskService.trash(id);
-            showToast('任务已移到回收站.', true);
-          }}
-          onSave={saveTask}
-          onSaveTemplate={async (name, draft) => {
-            await addTemplate(name, draft);
-            showToast('任务模板已保存.');
-          }}
-          open
-          sections={sections}
-          tags={tags}
-          task={editingTask}
-          templates={templates}
-        />
+        <Suspense fallback={<PanelLoading label="正在准备任务详情..." />}>
+          <TaskDialog
+            activities={activities}
+            categories={categories}
+            defaultCategoryId={dialogCategoryId}
+            defaultDate={dialogDate}
+            defaultDuration={dialogDuration}
+            defaultImportant={dialogImportant}
+            defaultPriority={dialogPriority}
+            defaultSectionId={dialogSectionId}
+            defaultTime={dialogTime}
+            focusSessions={focusSessions}
+            onClose={() => setTaskDialogOpen(false)}
+            onDelete={async (id) => {
+              await taskService.trash(id);
+              showToast('任务已移到回收站.', true);
+            }}
+            onSave={saveTask}
+            onSaveTemplate={async (name, draft) => {
+              await addTemplate(name, draft);
+              showToast('任务模板已保存.');
+            }}
+            open
+            sections={sections}
+            tags={tags}
+            task={editingTask}
+            tasks={activeTasks}
+            templates={templates}
+          />
+        </Suspense>
       )}
       {quickEditingTask && (
         <QuickEditPanel
@@ -1002,6 +1065,15 @@ export function App() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <div className="panel-loading" role="status">
+      <span />
+      {label}
     </div>
   );
 }
@@ -1143,6 +1215,19 @@ function SettingsView({
   tasks: number;
   templates: TaskTemplate[];
 }) {
+  const dialog = useAppDialog();
+  const [launchAtStartup, setLaunchAtStartupState] = useState(false);
+  const [persistenceStatus, setPersistenceStatus] = useState<DesktopPersistenceStatus>(
+    getDesktopPersistenceStatus,
+  );
+  useEffect(() => {
+    if (!isTauriRuntime()) return undefined;
+    void getLaunchAtStartup().then(setLaunchAtStartupState);
+    const updateStatus = (event: Event) =>
+      setPersistenceStatus((event as CustomEvent<DesktopPersistenceStatus>).detail);
+    window.addEventListener('easydo:persistence-status', updateStatus);
+    return () => window.removeEventListener('easydo:persistence-status', updateStatus);
+  }, []);
   return (
     <section className="settings-view">
       <div className="settings-card">
@@ -1208,6 +1293,18 @@ function SettingsView({
               }
               type="number"
               value={settings.shortBreakMinutes}
+            />
+          </label>
+          <label>
+            循环轮次
+            <input
+              max={8}
+              min={1}
+              onChange={(event) =>
+                void onUpdateSettings({ focusRounds: Number(event.target.value) })
+              }
+              type="number"
+              value={settings.focusRounds}
             />
           </label>
         </div>
@@ -1307,7 +1404,7 @@ function SettingsView({
       <div className="settings-row">
         <div>
           <strong>每日工作时间</strong>
-          <p>周视图和日视图仅展示这个时间范围.</p>
+          <p>设置日历可见范围和每天可承载的任务总量.</p>
         </div>
         <div className="settings-inline-fields">
           <label>
@@ -1334,8 +1431,41 @@ function SettingsView({
               value={settings.workdayEnd}
             />
           </label>
+          <label>
+            容量分钟
+            <input
+              max={1_440}
+              min={30}
+              onChange={(event) =>
+                void onUpdateSettings({ dailyCapacityMinutes: Number(event.target.value) })
+              }
+              step={30}
+              type="number"
+              value={settings.dailyCapacityMinutes}
+            />
+          </label>
         </div>
       </div>
+      {isTauriRuntime() && (
+        <div className="settings-row desktop-settings-row">
+          <div>
+            <strong>macOS 桌面集成</strong>
+            <p>{persistenceStatus.message} 快捷添加: Command + Shift + N.</p>
+          </div>
+          <label className="settings-switch">
+            <input
+              checked={launchAtStartup}
+              onChange={async (event) => {
+                const enabled = event.target.checked;
+                await setLaunchAtStartup(enabled);
+                setLaunchAtStartupState(enabled);
+              }}
+              type="checkbox"
+            />
+            登录时启动
+          </label>
+        </div>
+      )}
       <div className="settings-row template-settings-row">
         <div>
           <strong>任务模板</strong>
@@ -1384,10 +1514,18 @@ function SettingsView({
             导入
             <input
               accept="application/json,.json"
-              onChange={(event) => {
+              onChange={async (event) => {
                 const file = event.target.files?.[0];
-                if (file && window.confirm('导入会替换当前全部数据, 是否继续?'))
-                  void onImport(file);
+                if (
+                  file &&
+                  (await dialog.confirm({
+                    confirmText: '替换并导入',
+                    danger: true,
+                    description: '建议先导出当前数据作为备份.',
+                    title: '导入会替换当前全部数据, 是否继续?',
+                  }))
+                )
+                  await onImport(file);
                 event.target.value = '';
               }}
               type="file"
@@ -1402,7 +1540,16 @@ function SettingsView({
         </div>
         <button
           className="danger-button"
-          onClick={() => window.confirm('确定永久删除所有已完成任务吗?') && void onClearCompleted()}
+          onClick={async () => {
+            if (
+              await dialog.confirm({
+                confirmText: '永久删除',
+                danger: true,
+                title: '确定永久删除所有已完成任务吗?',
+              })
+            )
+              await onClearCompleted();
+          }}
           type="button"
         >
           立即清理
@@ -1478,6 +1625,7 @@ function TrashView({
   onRestore: (taskId: string) => Promise<void>;
   tasks: Task[];
 }) {
+  const dialog = useAppDialog();
   return (
     <section className="list-view trash-view">
       <div className="list-view-heading">
@@ -1488,7 +1636,17 @@ function TrashView({
         {tasks.length > 0 && (
           <button
             className="danger-button"
-            onClick={() => window.confirm('确定永久删除回收站中的全部任务吗?') && void onEmpty()}
+            onClick={async () => {
+              if (
+                await dialog.confirm({
+                  confirmText: '清空回收站',
+                  danger: true,
+                  description: '此操作无法撤销.',
+                  title: '确定永久删除回收站中的全部任务吗?',
+                })
+              )
+                await onEmpty();
+            }}
             type="button"
           >
             <Trash2 size={16} />
@@ -1514,9 +1672,17 @@ function TrashView({
               </button>
               <button
                 className="danger"
-                onClick={() =>
-                  window.confirm(`确定永久删除 "${task.title}" 吗?`) && void onPurge(task.id)
-                }
+                onClick={async () => {
+                  if (
+                    await dialog.confirm({
+                      confirmText: '永久删除',
+                      danger: true,
+                      description: '此操作无法撤销.',
+                      title: `确定永久删除 "${task.title}" 吗?`,
+                    })
+                  )
+                    await onPurge(task.id);
+                }}
                 type="button"
               >
                 <Trash2 size={15} />

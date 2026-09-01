@@ -1,6 +1,8 @@
 import { ArrowDown, ArrowUp, Trash2, X } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { useAppDialog } from './AppDialog';
+
 type CollectionDialogProps = {
   folders?: { id: string; name: string }[];
   initial?: { color: string; folderId?: string | null; id: string; name: string } | null;
@@ -24,6 +26,7 @@ export function CollectionDialog({
   onSave,
   open,
 }: CollectionDialogProps) {
+  const dialog = useAppDialog();
   const titleId = useId();
   const [name, setName] = useState(initial?.name ?? '');
   const [color, setColor] = useState(initial?.color ?? colors[0] ?? '#655fd7');
@@ -118,7 +121,14 @@ export function CollectionDialog({
             <button
               className="danger-button"
               onClick={async () => {
-                if (window.confirm(`确定删除${label} "${initial.name}" 吗?`)) {
+                if (
+                  await dialog.confirm({
+                    confirmText: '删除',
+                    danger: true,
+                    description: `删除后, 使用这个${label}的数据将被调整.`,
+                    title: `确定删除${label} "${initial.name}" 吗?`,
+                  })
+                ) {
                   await onDelete(initial.id);
                   onClose();
                 }

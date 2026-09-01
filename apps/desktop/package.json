@@ -1,10 +1,11 @@
 {
   "name": "@easydo/desktop",
-  "version": "1.7.0",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "CI=true tauri build",
+    "build:universal": "CI=true tauri build --target universal-apple-darwin",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "dev": "tauri dev",
     "tauri": "tauri"
