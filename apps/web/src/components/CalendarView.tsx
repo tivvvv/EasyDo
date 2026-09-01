@@ -11,6 +11,7 @@ import {
   GripVertical,
   Inbox,
   Layers3,
+  Sparkles,
   Timer,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -26,7 +27,8 @@ type CalendarViewProps = {
   mode: CalendarMode;
   onAdd: (date: string, time?: string | null, duration?: number) => void;
   onEdit: (task: Task) => void;
-  onMove: (taskId: string, date: string, time?: string | null) => Promise<void>;
+  onMove: (taskId: string, date: string | null, time?: string | null) => Promise<void>;
+  onPlan: () => void;
   onCopy?: (taskId: string, date: string, time?: string | null) => Promise<void>;
   onQuickEdit: (task: Task) => void;
   onResize: (taskId: string, duration: number) => Promise<void>;
@@ -59,6 +61,7 @@ export function CalendarView(props: CalendarViewProps) {
         categories={props.categories}
         onAdd={props.onAdd}
         onEdit={props.onEdit}
+        onPlan={props.onPlan}
         selectedDate={props.selectedDate}
         settings={props.settings}
         tasks={props.tasks}
@@ -73,6 +76,7 @@ function CalendarOverview({
   categories,
   onAdd,
   onEdit,
+  onPlan,
   selectedDate,
   settings,
   tasks,
@@ -80,6 +84,7 @@ function CalendarOverview({
   categories: Category[];
   onAdd: (date: string, time?: string | null, duration?: number) => void;
   onEdit: (task: Task) => void;
+  onPlan: () => void;
   selectedDate: Date;
   settings: AppSettings;
   tasks: Task[];
@@ -93,6 +98,10 @@ function CalendarOverview({
   const freeSlot = findFreeSlot(scheduled, settings.workdayStart, settings.workdayEnd, 30);
   return (
     <section className="calendar-overview" aria-label="日历负载概览">
+      <button className="calendar-plan-button" onClick={onPlan} type="button">
+        <Sparkles size={16} />
+        规划这一天
+      </button>
       <span>
         <CalendarDays size={16} />
         <strong>{scheduled.length}</strong>

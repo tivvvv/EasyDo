@@ -29,9 +29,11 @@ import {
   Check,
   Clock3,
   Flag,
+  MessageSquare,
   Paperclip,
   Plus,
   Repeat2,
+  Send,
   Trash2,
   X,
 } from 'lucide-react';
@@ -66,6 +68,7 @@ const emptyDraft: TaskDraft = {
   allDay: true,
   attachments: [],
   categoryId: 'category-work',
+  comments: [],
   dueDate: null,
   dueTime: null,
   duration: 30,
@@ -116,6 +119,7 @@ export function TaskDialog({
           allDay: task.allDay,
           attachments: task.attachments,
           categoryId: task.categoryId,
+          comments: task.comments ?? [],
           dueDate: task.dueDate,
           dueTime: task.dueTime,
           dependencyIds: task.dependencyIds ?? [],
@@ -154,6 +158,7 @@ export function TaskDialog({
   const [error, setError] = useState('');
   const [recurrenceScope, setRecurrenceScope] = useState<RecurrenceEditScope>('future');
   const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
+  const [commentText, setCommentText] = useState('');
 
   useEffect(() => {
     if (!open) {
@@ -323,6 +328,86 @@ export function TaskDialog({
               </details>
             )}
           </label>
+
+          <section className="task-comments" aria-label="任务评论">
+            <div className="task-comments-heading">
+              <span>
+                <MessageSquare size={15} />
+                评论
+              </span>
+              <small>{(draft.comments ?? []).length} 条记录</small>
+            </div>
+            {(draft.comments ?? []).length > 0 && (
+              <div className="task-comment-list">
+                {(draft.comments ?? []).map((comment) => (
+                  <article key={comment.id}>
+                    <div>
+                      <p>{comment.content}</p>
+                      <time>{new Date(comment.createdAt).toLocaleString('zh-CN')}</time>
+                    </div>
+                    <button
+                      aria-label="删除评论"
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          comments: (draft.comments ?? []).filter((item) => item.id !== comment.id),
+                        })
+                      }
+                      type="button"
+                    >
+                      <X size={14} />
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+            <div className="task-comment-composer">
+              <textarea
+                aria-label="添加评论"
+                maxLength={500}
+                onChange={(event) => setCommentText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.shiftKey) return;
+                  event.preventDefault();
+                  const content = commentText.trim();
+                  if (!content) return;
+                  const createdAt = new Date().toISOString();
+                  setDraft({
+                    ...draft,
+                    comments: [
+                      ...(draft.comments ?? []),
+                      { content, createdAt, id: createId('comment'), updatedAt: createdAt },
+                    ],
+                  });
+                  setCommentText('');
+                }}
+                placeholder="记录进展或补充上下文. Enter 添加, Shift + Enter 换行."
+                rows={2}
+                value={commentText}
+              />
+              <button
+                aria-label="提交评论"
+                disabled={!commentText.trim()}
+                onClick={() => {
+                  const content = commentText.trim();
+                  if (!content) return;
+                  const createdAt = new Date().toISOString();
+                  setDraft({
+                    ...draft,
+                    comments: [
+                      ...(draft.comments ?? []),
+                      { content, createdAt, id: createId('comment'), updatedAt: createdAt },
+                    ],
+                  });
+                  setCommentText('');
+                }}
+                type="button"
+              >
+                <Send size={15} />
+              </button>
+            </div>
+            <p className="field-hint">评论会随任务一起保存, 也可以通过搜索找到.</p>
+          </section>
 
           <div className="field-grid">
             <label className="field">

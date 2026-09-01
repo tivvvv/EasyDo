@@ -65,6 +65,14 @@ describe('任务领域规则', () => {
 
   it('同时搜索标题和备注并忽略大小写', () => {
     const candidate = task({
+      comments: [
+        {
+          content: '等待法务确认',
+          createdAt: '2026-08-30T09:00:00.000Z',
+          id: 'comment-1',
+          updatedAt: '2026-08-30T09:00:00.000Z',
+        },
+      ],
       notes: 'Prepare Launch notes',
       subtasks: [{ ...createSubtask('联系设计师'), id: 'subtask-1' }],
       title: '季度计划',
@@ -73,6 +81,7 @@ describe('任务领域规则', () => {
     expect(matchesTaskSearch(candidate, 'launch')).toBe(true);
     expect(matchesTaskSearch(candidate, '季度')).toBe(true);
     expect(matchesTaskSearch(candidate, '设计师')).toBe(true);
+    expect(matchesTaskSearch(candidate, '法务')).toBe(true);
     expect(matchesTaskSearch(candidate, '不存在')).toBe(false);
     expect(matchesTaskSearch(candidate, '  ')).toBe(true);
   });

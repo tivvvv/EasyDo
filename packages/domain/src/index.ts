@@ -10,6 +10,13 @@ export type Reminder = {
   reference: 'end' | 'start';
 };
 
+export type TaskComment = {
+  content: string;
+  createdAt: string;
+  id: string;
+  updatedAt: string;
+};
+
 export type RecurrenceFrequency = 'daily' | 'monthly' | 'weekdays' | 'weekly' | 'yearly';
 
 export type RecurrenceRule = {
@@ -83,6 +90,7 @@ export type Task = {
   attachments: Attachment[];
   allDay: boolean;
   categoryId: string;
+  comments?: TaskComment[];
   completedAt: string | null;
   createdAt: string;
   deletedAt: string | null;
@@ -255,7 +263,7 @@ export type TaskDraft = Pick<
   | 'timeZone'
   | 'title'
 > &
-  Partial<Pick<Task, 'dependencyIds' | 'estimateMinutes' | 'milestone'>>;
+  Partial<Pick<Task, 'comments' | 'dependencyIds' | 'estimateMinutes' | 'milestone'>>;
 
 export type TaskPatch = Partial<TaskDraft>;
 
@@ -370,6 +378,7 @@ export function createId(
   prefix:
     | 'activity'
     | 'attachment'
+    | 'comment'
     | 'category'
     | 'filter'
     | 'countdown'
@@ -414,7 +423,10 @@ export function matchesTaskSearch(task: Task, search: string): boolean {
   }
 
   const subtaskText = task.subtasks.map((subtask) => `${subtask.title} ${subtask.notes}`).join(' ');
-  return `${task.title} ${task.notes} ${subtaskText}`.toLocaleLowerCase().includes(normalized);
+  const commentText = (task.comments ?? []).map((comment) => comment.content).join(' ');
+  return `${task.title} ${task.notes} ${subtaskText} ${commentText}`
+    .toLocaleLowerCase()
+    .includes(normalized);
 }
 
 export function taskProgress(task: Task): { completed: number; total: number } {
@@ -526,6 +538,8 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
   return (
     typeof task.title === 'string' &&
     typeof task.important === 'boolean' &&
+    (task.comments === undefined ||
+      (Array.isArray(task.comments) && task.comments.every(isTaskCommentRecord))) &&
     (task.dependencyIds === undefined ||
       (Array.isArray(task.dependencyIds) &&
         task.dependencyIds.every((taskId) => typeof taskId === 'string'))) &&
@@ -568,6 +582,17 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
         subtask.tagIds.every((tagId) => typeof tagId === 'string'),
     ) &&
     typeof task.timeZone === 'string'
+  );
+}
+
+function isTaskCommentRecord(value: unknown): value is TaskComment {
+  if (!value || typeof value !== 'object') return false;
+  const comment = value as Partial<TaskComment>;
+  return (
+    typeof comment.content === 'string' &&
+    typeof comment.createdAt === 'string' &&
+    typeof comment.id === 'string' &&
+    typeof comment.updatedAt === 'string'
   );
 }
 

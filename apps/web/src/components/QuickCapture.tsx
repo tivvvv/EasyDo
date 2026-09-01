@@ -25,6 +25,7 @@ export function QuickCapture({ categories, onCreate, tags }: QuickCaptureProps) 
       allDay: parsed.draft.allDay ?? !parsed.draft.dueTime,
       attachments: [],
       categoryId: categories[0]?.id ?? '',
+      comments: [],
       dueDate: parsed.draft.dueDate ?? null,
       dueTime: parsed.draft.dueTime ?? null,
       duration: parsed.draft.duration ?? 30,

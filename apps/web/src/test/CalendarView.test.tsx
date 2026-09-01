@@ -49,6 +49,7 @@ const callbacks = {
   onAdd: vi.fn(),
   onEdit: vi.fn(),
   onMove: vi.fn().mockResolvedValue(undefined),
+  onPlan: vi.fn(),
   onQuickEdit: vi.fn(),
   onResize: vi.fn().mockResolvedValue(undefined),
   onSelectDate: vi.fn(),

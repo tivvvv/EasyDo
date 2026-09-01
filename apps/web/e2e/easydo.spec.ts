@@ -297,6 +297,33 @@ test('使用年视图, 四周视图和计划收件箱', async ({ page, isMobile 
   await expect(page.locator('.planning-tray')).toContainText('计划收件箱');
 });
 
+test('使用命令面板完成每日规划并搜索任务评论', async ({ page, isMobile }) => {
+  test.skip(isMobile, '键盘命令和双栏每日规划由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByLabel('快速添加任务').fill('待规划的深度工作');
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+
+  await page.keyboard.press('Meta+P');
+  await expect(page.getByRole('dialog', { name: '全局命令' })).toBeVisible();
+  await page.getByLabel('搜索命令').fill('规划选中的一天');
+  await page.keyboard.press('Enter');
+
+  const planner = page.getByRole('dialog', { name: '今日计划' });
+  await expect(planner).toBeVisible();
+  await expect(planner.getByText('待规划的深度工作')).toBeVisible();
+  await planner.getByRole('button', { name: /^\d{2}:\d{2}$/ }).click();
+  await expect(planner.getByText('待规划的深度工作')).toBeVisible();
+  await planner.getByRole('button', { name: '关闭今日计划' }).click();
+
+  await page.getByText('规划今天最重要的三件事').first().click();
+  await page.getByRole('button', { name: '完整编辑' }).click();
+  await page.getByLabel('添加评论').fill('等待设计评审确认');
+  await page.getByRole('button', { name: '提交评论' }).click();
+  await page.getByRole('button', { name: '保存更改' }).click();
+  await page.getByLabel('搜索任务').fill('设计评审');
+  await expect(page.getByText('规划今天最重要的三件事').first()).toBeVisible();
+});
+
 test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => {
   test.skip(isMobile, '效率工作台完整流程由桌面端覆盖.');
   await page.goto('/');

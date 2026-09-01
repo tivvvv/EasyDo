@@ -43,12 +43,14 @@ describe('任务编辑对话框', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('请输入任务标题.');
 
     await user.type(screen.getByLabelText('任务标题'), '完成版本验收');
+    await user.type(screen.getByLabelText('添加评论'), '已确认交互细节{Enter}');
     await user.click(screen.getByRole('button', { name: '#专注' }));
     await user.click(screen.getByRole('button', { name: '高优先级' }));
     await user.click(screen.getByRole('button', { name: '创建任务' }));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
+        comments: [expect.objectContaining({ content: '已确认交互细节' })],
         dueDate: '2026-08-30',
         priority: 'high',
         tagIds: ['tag-focus'],

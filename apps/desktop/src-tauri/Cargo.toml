@@ -1,6 +1,6 @@
 [package]
 name = "easydo-desktop"
-version = "1.10.0"
+version = "1.11.0"
 default-run = "easydo-desktop"
 description = "EasyDo local-first task and calendar desktop application."
 authors = ["tivvvv"]

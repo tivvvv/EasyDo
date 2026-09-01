@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CirclePlus,
+  Command,
   Download,
   Edit3,
   Folder as FolderIcon,
@@ -38,6 +39,7 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Tag as TagIcon,
   Trash2,
   Upload,
@@ -82,6 +84,8 @@ import { taskService } from './application';
 import { useAppDialog } from './components/AppDialog';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
 import { CollectionDialog } from './components/CollectionDialog';
+import { CommandPalette, type CommandAction } from './components/CommandPalette';
+import { DailyPlanner } from './components/DailyPlanner';
 import { FilterPanel } from './components/FilterPanel';
 import { QuickEditPanel } from './components/QuickEditPanel';
 import { QuickCapture } from './components/QuickCapture';
@@ -133,6 +137,8 @@ export function App() {
   const [dialogPriority, setDialogPriority] = useState<Priority>('none');
   const [dialogSectionId, setDialogSectionId] = useState<string | null>(null);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [dailyPlannerOpen, setDailyPlannerOpen] = useState(false);
   const [collectionDialog, setCollectionDialog] = useState<{
     initial: Category | Tag | null;
     kind: 'category' | 'tag';
@@ -181,6 +187,9 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         searchRef.current?.focus();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
       } else if (!typing && event.key.toLowerCase() === 'n') {
         event.preventDefault();
         openNewTask(
@@ -299,6 +308,77 @@ export function App() {
     setQuickEditingTask(null);
     setMobileMenuOpen(false);
   };
+
+  const moveTask = async (taskId: string, dueDate: string | null, dueTime?: string | null) => {
+    await taskService.reschedule(taskId, dueDate, dueTime);
+    showToast(dueDate ? '任务时间已调整.' : '任务已移回待规划.', true);
+  };
+
+  const commandActions: CommandAction[] = [
+    {
+      id: 'new-task',
+      keywords: '添加 创建 todo',
+      label: '新建任务',
+      run: () => openNewTask(view.kind === 'calendar' ? toDateKey(selectedDate) : null),
+      section: '快速操作',
+      shortcut: 'N',
+    },
+    {
+      id: 'plan-day',
+      keywords: '今日计划 自动安排 时间块',
+      label: '规划选中的一天',
+      run: () => {
+        chooseView({ kind: 'calendar' });
+        setDailyPlannerOpen(true);
+      },
+      section: '快速操作',
+    },
+    ...(
+      [
+        ['today', '打开今天', { kind: 'today' }],
+        ['calendar', '打开日历', { kind: 'calendar' }],
+        ['inbox', '打开收集箱', { kind: 'inbox' }],
+        ['all', '打开全部任务', { kind: 'all' }],
+        ['productivity', '打开效率工作台', { kind: 'productivity' }],
+        ['settings', '打开设置', { kind: 'settings' }],
+        ['history', '打开操作历史', { kind: 'history' }],
+      ] as const
+    ).map(([id, label, target]) => ({
+      id: `view-${id}`,
+      label,
+      run: () => chooseView(target),
+      section: '导航',
+    })),
+    ...(
+      [
+        ['day', '切换到日视图'],
+        ['week', '切换到周视图'],
+        ['month', '切换到月视图'],
+        ['agenda', '切换到日程视图'],
+      ] as const
+    ).map(([mode, label]) => ({
+      id: `calendar-${mode}`,
+      label,
+      run: () => {
+        chooseView({ kind: 'calendar' });
+        setCalendarMode(mode);
+        void updateSettings({ defaultCalendarMode: mode });
+      },
+      section: '日历视图',
+    })),
+    ...(
+      [
+        ['light', '使用浅色主题'],
+        ['dark', '使用深色主题'],
+        ['system', '跟随系统主题'],
+      ] as const
+    ).map(([theme, label]) => ({
+      id: `theme-${theme}`,
+      label,
+      run: () => void updateSettings({ theme }),
+      section: '外观',
+    })),
+  ];
 
   return (
     <div className="app-shell">
@@ -563,6 +643,16 @@ export function App() {
                 <kbd>⌘ K</kbd>
               )}
             </label>
+            <button
+              aria-label="打开全局命令"
+              className="command-trigger"
+              onClick={() => setCommandPaletteOpen(true)}
+              type="button"
+            >
+              <Command size={16} />
+              命令
+              <kbd>⌘ P</kbd>
+            </button>
             <label className="filter-select">
               <span className="sr-only">按优先级筛选</span>
               <select
@@ -642,6 +732,14 @@ export function App() {
                     </button>
                   ))}
                 </div>
+                <button
+                  className="plan-day-button"
+                  onClick={() => setDailyPlannerOpen(true)}
+                  type="button"
+                >
+                  <Sparkles size={16} />
+                  规划
+                </button>
                 <button
                   className="today-button"
                   onClick={() => {
@@ -731,9 +829,9 @@ export function App() {
               setTaskDialogOpen(true);
             }}
             onMove={async (taskId, dueDate, dueTime) => {
-              await taskService.reschedule(taskId, dueDate, dueTime);
-              showToast('任务时间已调整.', true);
+              await moveTask(taskId, dueDate, dueTime);
             }}
+            onPlan={() => setDailyPlannerOpen(true)}
             onCopy={async (taskId, dueDate, dueTime) => {
               const copy = await taskService.duplicate(taskId);
               await taskService.reschedule(copy.id, dueDate, dueTime);
@@ -975,6 +1073,24 @@ export function App() {
             templates={templates}
           />
         </Suspense>
+      )}
+      {dailyPlannerOpen && (
+        <DailyPlanner
+          categories={categories}
+          date={toDateKey(selectedDate)}
+          onClose={() => setDailyPlannerOpen(false)}
+          onEdit={(task) => {
+            setDailyPlannerOpen(false);
+            setEditingTask(task);
+            setTaskDialogOpen(true);
+          }}
+          onMove={moveTask}
+          settings={settings}
+          tasks={activeTasks}
+        />
+      )}
+      {commandPaletteOpen && (
+        <CommandPalette actions={commandActions} onClose={() => setCommandPaletteOpen(false)} />
       )}
       {quickEditingTask && (
         <QuickEditPanel

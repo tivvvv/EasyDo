@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "EasyDo",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "identifier": "com.tivvvv.easydo",
   "build": {
     "frontendDist": "../../web/dist",

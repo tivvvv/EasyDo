@@ -83,6 +83,7 @@ export function createInitialWorkspace(now = new Date()): BackupPayload {
     allDay: dueTime === null,
     attachments: [],
     categoryId,
+    comments: [],
     completedAt: null,
     createdAt,
     deletedAt: null,

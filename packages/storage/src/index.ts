@@ -254,6 +254,7 @@ export class EasyDoDatabase extends Dexie {
 function upgradeTask(task: Task): Task {
   task.attachments ??= [];
   task.allDay ??= !task.dueTime;
+  task.comments ??= [];
   task.dependencyIds ??= [];
   task.endTime ??= task.dueTime ? addMinutesToTime(task.dueTime, task.duration) : null;
   task.estimateMinutes ??= task.duration;
@@ -289,6 +290,7 @@ function upgradeDraft(draft: TaskDraft): TaskDraft {
     ...draft,
     attachments: draft.attachments ?? [],
     allDay: draft.allDay ?? !draft.dueTime,
+    comments: draft.comments ?? [],
     dependencyIds: draft.dependencyIds ?? [],
     endTime:
       draft.endTime ?? (draft.dueTime ? addMinutesToTime(draft.dueTime, draft.duration) : null),

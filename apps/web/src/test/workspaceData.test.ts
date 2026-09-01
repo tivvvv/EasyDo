@@ -15,6 +15,16 @@ describe('共享工作区数据', () => {
     expect(workspace.tasks[1]?.recurrence?.frequency).toBe('weekdays');
   });
 
+  it('为1.10旧任务安全补充评论数据', () => {
+    const workspace = createInitialWorkspace(now);
+    const legacyTask = workspace.tasks[0] as TaskWithoutComments;
+    delete legacyTask.comments;
+
+    const migrated = parseBackup(JSON.stringify(workspace));
+
+    expect(migrated.tasks[0]?.comments).toEqual([]);
+  });
+
   it('保留两个旧数据源中的独立任务并选择更新版本', () => {
     const desktop = createInitialWorkspace(now);
     const browser = structuredClone(desktop);
@@ -99,3 +109,10 @@ describe('共享工作区数据', () => {
     expect(merged.version).toBe(5);
   });
 });
+
+type TaskWithoutComments = Omit<
+  ReturnType<typeof createInitialWorkspace>['tasks'][number],
+  'comments'
+> & {
+  comments?: never;
+};
