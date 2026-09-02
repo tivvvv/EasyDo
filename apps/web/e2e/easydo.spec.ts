@@ -303,7 +303,7 @@ test('使用命令面板完成每日规划并搜索任务评论', async ({ page,
   await page.getByLabel('快速添加任务').fill('待规划的深度工作');
   await page.getByRole('button', { name: '添加', exact: true }).click();
 
-  await page.keyboard.press('Meta+P');
+  await page.keyboard.press('Control+P');
   await expect(page.getByRole('dialog', { name: '全局命令' })).toBeVisible();
   await page.getByLabel('搜索命令').fill('规划选中的一天');
   await page.keyboard.press('Enter');
