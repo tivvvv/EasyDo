@@ -187,9 +187,13 @@ export function DailyPlanner({
                           {task.dueTime ?? '全天'} · {task.estimateMinutes ?? task.duration} 分钟
                         </span>
                       </button>
-                      <button onClick={() => void onMove(task.id, null, null)} type="button">
-                        移回待规划
-                      </button>
+                      {task.scheduleLocked ? (
+                        <span className="planner-lock">已锁定</span>
+                      ) : (
+                        <button onClick={() => void onMove(task.id, null, null)} type="button">
+                          移回待规划
+                        </button>
+                      )}
                     </article>
                   );
                 })

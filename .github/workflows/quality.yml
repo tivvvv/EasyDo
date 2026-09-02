@@ -48,3 +48,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm desktop:check
+      - run: pnpm --filter @easydo/web exec playwright install chromium
+      - run: pnpm --filter @easydo/web exec playwright test e2e/visual.spec.ts

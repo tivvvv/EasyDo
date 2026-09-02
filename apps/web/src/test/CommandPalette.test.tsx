@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import { CommandPalette } from '../components/CommandPalette';
+import { scoreCommand } from '../lib/commandSearch';
 
 describe('全局命令面板', () => {
   it('搜索并执行命令', async () => {
@@ -38,5 +39,23 @@ describe('全局命令面板', () => {
     );
     await user.keyboard('{ArrowDown}{Enter}');
     expect(second).toHaveBeenCalledOnce();
+  });
+
+  it('支持不连续字符的模糊匹配', async () => {
+    const user = userEvent.setup();
+    const calendar = vi.fn();
+    render(
+      <CommandPalette
+        actions={[
+          { id: 'today', label: '打开今天', run: vi.fn(), section: '导航' },
+          { id: 'calendar', label: '打开日历', run: calendar, section: '导航' },
+        ]}
+        onClose={() => undefined}
+      />,
+    );
+    await user.type(screen.getByLabelText('搜索命令'), '打日历');
+    await user.keyboard('{Enter}');
+    expect(calendar).toHaveBeenCalledOnce();
+    expect(scoreCommand('打开日历 导航', '打日历')).toBeGreaterThanOrEqual(0);
   });
 });

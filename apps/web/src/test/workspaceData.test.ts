@@ -108,6 +108,23 @@ describe('共享工作区数据', () => {
     expect(merged.categories.some((category) => category.id === 'browser-category')).toBe(true);
     expect(merged.version).toBe(5);
   });
+
+  it('合并提醒投递记录并保留每个提醒的最新状态', () => {
+    const desktop = createInitialWorkspace(now);
+    const browser = createInitialWorkspace(now);
+    desktop.reminderDeliveries = [
+      { createdAt: '2026-09-01T08:00:00.000Z', key: 'reminder-1', status: 'scheduled' },
+    ];
+    browser.reminderDeliveries = [
+      { createdAt: '2026-09-01T08:05:00.000Z', key: 'reminder-1', status: 'delivered' },
+      { createdAt: '2026-09-01T08:06:00.000Z', key: 'reminder-2', status: 'delivered' },
+    ];
+
+    expect(mergeWorkspaces(desktop, browser).reminderDeliveries).toEqual([
+      { createdAt: '2026-09-01T08:05:00.000Z', key: 'reminder-1', status: 'delivered' },
+      { createdAt: '2026-09-01T08:06:00.000Z', key: 'reminder-2', status: 'delivered' },
+    ]);
+  });
 });
 
 type TaskWithoutComments = Omit<

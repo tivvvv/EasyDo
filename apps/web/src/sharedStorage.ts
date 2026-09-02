@@ -8,6 +8,7 @@ import type {
   Folder,
   Habit,
   HabitPatch,
+  ReminderDelivery,
   SavedFilter,
   Section,
   Tag,
@@ -202,6 +203,19 @@ export async function exportBackup(): Promise<BackupPayload> {
 
 export async function replaceFromBackup(payload: BackupPayload): Promise<void> {
   await sharedWorkspace.replace(payload);
+}
+
+export async function recordReminderDeliveries(
+  deliveries: readonly ReminderDelivery[],
+): Promise<void> {
+  if (!deliveries.length) return;
+  await sharedWorkspace.mutate((workspace) => {
+    const byKey = new Map((workspace.reminderDeliveries ?? []).map((item) => [item.key, item]));
+    for (const delivery of deliveries) byKey.set(delivery.key, structuredClone(delivery));
+    workspace.reminderDeliveries = [...byKey.values()]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(-1_000);
+  });
 }
 
 export async function emptyTrash(): Promise<number> {

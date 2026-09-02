@@ -17,7 +17,7 @@ export function useDesktopBridge(incompleteCount: number): void {
       const shortcut = 'CommandOrControl+Shift+N';
       if (!active || (await isRegistered(shortcut))) return;
       await register(shortcut, () => {
-        window.dispatchEvent(new CustomEvent('easydo:quick-add'));
+        void import('@tauri-apps/api/core').then(({ invoke }) => invoke('show_quick_capture'));
       });
     };
     void registerShortcut();

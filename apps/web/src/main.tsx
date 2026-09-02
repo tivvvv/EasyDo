@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { AppDialogProvider } from './components/AppDialog';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { QuickCaptureWindow } from './components/QuickCaptureWindow';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 const desktopRuntime = '__TAURI_INTERNALS__' in window;
@@ -13,16 +14,16 @@ if (!root) {
 }
 
 if (desktopRuntime) document.documentElement.dataset.runtime = 'desktop';
+const captureRuntime = desktopRuntime && new URLSearchParams(window.location.search).has('capture');
+if (captureRuntime) document.documentElement.dataset.capture = 'true';
 
 createRoot(root).render(
   <StrictMode>
-    {desktopRuntime && (
+    {desktopRuntime && !captureRuntime && (
       <div aria-hidden="true" className="desktop-titlebar" data-tauri-drag-region />
     )}
     <AppErrorBoundary>
-      <AppDialogProvider>
-        <App />
-      </AppDialogProvider>
+      <AppDialogProvider>{captureRuntime ? <QuickCaptureWindow /> : <App />}</AppDialogProvider>
     </AppErrorBoundary>
   </StrictMode>,
 );

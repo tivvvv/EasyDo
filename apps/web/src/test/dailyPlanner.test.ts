@@ -54,6 +54,14 @@ describe('每日规划算法', () => {
     ]);
   });
 
+  it('不把锁定的时间块纳入自动规划候选', () => {
+    const tasks = [
+      { ...baseTask, id: 'locked', scheduleLocked: true, title: '固定会议' },
+      { ...baseTask, id: 'normal', title: '普通任务' },
+    ];
+    expect(getPlanningCandidates(tasks, '2026-09-02').map((task) => task.id)).toEqual(['normal']);
+  });
+
   it('避开已有时间块并遵守每日容量', () => {
     const tasks: Task[] = [
       {

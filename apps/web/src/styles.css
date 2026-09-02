@@ -3329,6 +3329,69 @@ kbd {
   opacity: 0.45;
 }
 
+.quick-capture .quick-capture-paste {
+  display: grid;
+  min-width: 36px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--surface-strong);
+  place-items: center;
+}
+
+html[data-capture='true'],
+html[data-capture='true'] body,
+html[data-capture='true'] #root {
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.capture-window {
+  display: grid;
+  min-height: 100vh;
+  padding: 14px 16px 12px;
+  grid-template-rows: auto 1fr auto;
+}
+
+.capture-window > header,
+.capture-window > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.capture-window > header small,
+.capture-window > footer {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.capture-window .quick-capture {
+  align-self: center;
+  width: 100%;
+  margin: 8px 0;
+  box-shadow: none;
+}
+
+.capture-window > footer {
+  justify-content: flex-start;
+  transition: color 160ms ease;
+}
+
+.capture-window > footer.created {
+  color: #258064;
+}
+
+.capture-window.loading {
+  color: var(--muted);
+  place-items: center;
+}
+
 .folder-add-button {
   color: var(--muted) !important;
   font-size: 11px !important;

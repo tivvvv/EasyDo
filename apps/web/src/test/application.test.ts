@@ -10,6 +10,7 @@ import {
 import {
   getPendingReminders,
   getPendingReminderEvents,
+  getScheduledReminderEvents,
   exportTasksToIcs,
   formatTaskTimeInZone,
   matchesFilter,
@@ -505,6 +506,47 @@ describe('重复日期和提醒规则', () => {
     ).toHaveLength(1);
   });
 
+  it('调度持续提醒和子任务提醒', () => {
+    const reminder = createReminder(10);
+    reminder.repeatCount = 3;
+    reminder.repeatIntervalMinutes = 5;
+    const task: Task = {
+      ...draft,
+      completedAt: null,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      deletedAt: null,
+      id: 'task-repeating-reminder',
+      order: 0,
+      reminders: [reminder],
+      seriesId: null,
+      subtasks: [
+        {
+          completedAt: null,
+          dueDate: '2026-08-31',
+          dueTime: '10:00',
+          id: 'subtask-reminder',
+          notes: '',
+          priority: 'none',
+          reminderMinutes: 5,
+          tagIds: [],
+          title: '确认材料',
+        },
+      ],
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    };
+    const events = getScheduledReminderEvents(
+      [task],
+      new Date('2026-08-30T00:00:00.000Z'),
+      new Date('2026-09-01T00:00:00.000Z'),
+    );
+    expect(events.filter((event) => event.subjectId === task.id)).toHaveLength(3);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectId: 'subtask-reminder', subjectTitle: '确认材料' }),
+      ]),
+    );
+  });
+
   it('解析中文快速输入中的日期, 时间, 标签, 优先级和提醒', () => {
     const result = parseQuickTask(
       '明天下午3点 写周报 #工作 !高 持续2小时 提前30分钟',
@@ -527,6 +569,18 @@ describe('重复日期和提醒规则', () => {
       dueTime: '09:00',
       reminderMinutes: 60,
       title: '会议',
+    });
+    expect(
+      parseQuickTask('下周一早上 整理周计划 @工作 #例行 每周', new Date('2026-09-02T09:00:00')),
+    ).toMatchObject({
+      categoryName: '工作',
+      draft: {
+        dueDate: '2026-09-07',
+        dueTime: '09:00',
+        recurrence: expect.objectContaining({ frequency: 'weekly' }),
+        title: '整理周计划',
+      },
+      tagNames: ['例行'],
     });
   });
 

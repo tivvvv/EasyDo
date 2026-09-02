@@ -35,6 +35,8 @@ import {
   startOfWeek,
 } from 'date-fns';
 
+export { parseQuickTask, type QuickTaskParseResult } from './quickTaskParser';
+
 export type TaskRepository = {
   add(task: Task): Promise<void>;
   delete(id: string): Promise<void>;
@@ -475,13 +477,15 @@ function findNextWeeklyDate(current: Date, rule: RecurrenceRule): Date {
 
 export type ReminderEvent = {
   key: string;
+  notifyAt: Date;
+  overdueMinutes: number;
   reminder: Reminder;
+  subjectId: string;
+  subjectTitle: string;
   task: Task;
 };
 
-export type ScheduledReminderEvent = ReminderEvent & {
-  notifyAt: Date;
-};
+export type ScheduledReminderEvent = ReminderEvent;
 
 export function getScheduledReminderEvents(
   tasks: readonly Task[],
@@ -489,29 +493,77 @@ export function getScheduledReminderEvents(
   until: Date,
 ): ScheduledReminderEvent[] {
   return tasks.flatMap((task) => {
-    if (task.completedAt || task.deletedAt || !task.dueDate || !task.dueTime) return [];
-    const reminders = task.reminders.length
-      ? task.reminders
-      : task.reminderMinutes === null
-        ? []
-        : [createReminder(task.reminderMinutes)];
-    return reminders.flatMap((reminder) => {
-      const referenceTime =
-        reminder.reference === 'end' && task.endTime ? task.endTime : task.dueTime;
-      const referenceDate =
-        reminder.reference === 'end' ? (task.endDate ?? task.dueDate) : task.dueDate;
-      const scheduledAt = zonedDateTimeToDate(referenceDate!, referenceTime!, task.timeZone);
-      const notifyAt = new Date(scheduledAt.getTime() - reminder.offsetMinutes * 60_000);
-      if (notifyAt <= from || notifyAt > until) return [];
-      return [
-        {
-          key: `${task.id}:${reminder.id}:${task.dueDate}:${task.dueTime}`,
-          notifyAt,
-          reminder,
-          task,
-        },
-      ];
-    });
+    if (task.completedAt || task.deletedAt) return [];
+    const subjects = [
+      ...(task.dueDate && task.dueTime
+        ? [
+            {
+              dueDate: task.dueDate,
+              dueTime: task.dueTime,
+              endDate: task.endDate,
+              endTime: task.endTime,
+              id: task.id,
+              reminders: task.reminders.length
+                ? task.reminders
+                : task.reminderMinutes === null
+                  ? []
+                  : [createReminder(task.reminderMinutes)],
+              title: task.title,
+            },
+          ]
+        : []),
+      ...task.subtasks.flatMap((subtask) =>
+        !subtask.completedAt &&
+        subtask.dueDate &&
+        subtask.dueTime &&
+        subtask.reminderMinutes !== null
+          ? [
+              {
+                dueDate: subtask.dueDate,
+                dueTime: subtask.dueTime,
+                endDate: null,
+                endTime: null,
+                id: subtask.id,
+                reminders: [
+                  {
+                    id: `subtask-${subtask.id}`,
+                    offsetMinutes: subtask.reminderMinutes,
+                    reference: 'start' as const,
+                    repeatCount: 1,
+                    repeatIntervalMinutes: null,
+                  } satisfies Reminder,
+                ],
+                title: subtask.title,
+              },
+            ]
+          : [],
+      ),
+    ];
+    return subjects.flatMap((subject) =>
+      subject.reminders.flatMap((reminder) => {
+        const referenceTime =
+          reminder.reference === 'end' && subject.endTime ? subject.endTime : subject.dueTime;
+        const referenceDate =
+          reminder.reference === 'end' ? (subject.endDate ?? subject.dueDate) : subject.dueDate;
+        const scheduledAt = zonedDateTimeToDate(referenceDate, referenceTime, task.timeZone);
+        const firstNotifyAt = new Date(scheduledAt.getTime() - reminder.offsetMinutes * 60_000);
+        const repeatCount = Math.max(1, Math.min(10, reminder.repeatCount ?? 1));
+        const repeatInterval = Math.max(1, reminder.repeatIntervalMinutes ?? 1);
+        return Array.from({ length: repeatCount }, (_, repeatIndex) => {
+          const notifyAt = addMinutes(firstNotifyAt, repeatIndex * repeatInterval);
+          if (notifyAt <= from || notifyAt > until) return null;
+          return {
+            key: `${task.id}:${subject.id}:${reminder.id}:${subject.dueDate}:${subject.dueTime}:${repeatIndex}`,
+            notifyAt,
+            overdueMinutes: 0,
+            reminder,
+            subjectId: subject.id,
+            subjectTitle: subject.title,
+            task,
+          };
+        }).filter((event): event is ScheduledReminderEvent => event !== null);
+      }),
+    );
   });
 }
 
@@ -520,32 +572,18 @@ export function getPendingReminderEvents(
   now: Date,
   notifiedKeys: ReadonlySet<string>,
 ): ReminderEvent[] {
-  const nowTime = now.getTime();
-  return tasks.flatMap((task) => {
-    if (task.completedAt || task.deletedAt || !task.dueDate || !task.dueTime) return [];
-    const reminders = task.reminders.length
-      ? task.reminders
-      : task.reminderMinutes === null
-        ? []
-        : [createReminder(task.reminderMinutes)];
-    return reminders.flatMap((reminder) => {
-      const key = `${task.id}:${reminder.id}:${task.dueDate}:${task.dueTime}`;
-      if (notifiedKeys.has(key)) return [];
-      const referenceTime =
-        reminder.reference === 'end' && task.endTime ? task.endTime : task.dueTime;
-      const referenceDate =
-        reminder.reference === 'end' ? (task.endDate ?? task.dueDate) : task.dueDate;
-      const scheduledAt = zonedDateTimeToDate(
-        referenceDate!,
-        referenceTime!,
-        task.timeZone,
-      ).getTime();
-      const remindAt = scheduledAt - reminder.offsetMinutes * 60_000;
-      return nowTime >= remindAt && nowTime <= scheduledAt + 300_000
-        ? [{ key, reminder, task }]
-        : [];
-    });
-  });
+  const earliest = addMinutes(now, -24 * 60);
+  const latestBySubject = new Map<string, ScheduledReminderEvent>();
+  for (const event of getScheduledReminderEvents(tasks, earliest, now)) {
+    const current = latestBySubject.get(event.subjectId);
+    if (!current || current.notifyAt < event.notifyAt) latestBySubject.set(event.subjectId, event);
+  }
+  return [...latestBySubject.values()]
+    .filter((event) => !notifiedKeys.has(event.key))
+    .map((event) => ({
+      ...event,
+      overdueMinutes: Math.max(0, Math.floor((now.getTime() - event.notifyAt.getTime()) / 60_000)),
+    }));
 }
 
 export function zonedDateTimeToDate(dateKey: string, time: string, timeZone: string): Date {
@@ -837,84 +875,6 @@ export function taskHasConflict(task: Task, tasks: readonly Task[]): boolean {
   });
 }
 
-export type QuickTaskParseResult = {
-  draft: Partial<TaskDraft> & Pick<TaskDraft, 'title'>;
-  tagNames: string[];
-};
-
-export function parseQuickTask(input: string, now = new Date()): QuickTaskParseResult {
-  let title = input.trim();
-  const draft: QuickTaskParseResult['draft'] = { title };
-  const tags = [...title.matchAll(/#([^\s#!]+)/g)].flatMap((match) => (match[1] ? [match[1]] : []));
-  title = title.replace(/#([^\s#!]+)/g, '').trim();
-
-  const priorityMatch = title.match(/(?:!|！)(高|中|低|\bhigh\b|\bmedium\b|\blow\b)/i);
-  if (priorityMatch) {
-    const priorityMap = {
-      high: 'high',
-      low: 'low',
-      medium: 'medium',
-      中: 'medium',
-      低: 'low',
-      高: 'high',
-    } as const;
-    const priorityKey = priorityMatch[1]?.toLowerCase() as keyof typeof priorityMap;
-    draft.priority = priorityMap[priorityKey];
-    title = title.replace(priorityMatch[0], '').trim();
-  }
-
-  const dayTokens: Array<[RegExp, number]> = [
-    [/(?:今天|\btoday\b)/i, 0],
-    [/(?:明天|\btomorrow\b)/i, 1],
-    [/(?:后天)/i, 2],
-  ];
-  for (const [pattern, offset] of dayTokens) {
-    if (pattern.test(title)) {
-      draft.dueDate = format(addDays(now, offset), 'yyyy-MM-dd');
-      title = title.replace(pattern, '').trim();
-      break;
-    }
-  }
-
-  const dateMatch = title.match(/\b(\d{4}-\d{1,2}-\d{1,2})\b/);
-  if (dateMatch) {
-    const parsed = parseISO(dateMatch[1]!);
-    if (!Number.isNaN(parsed.getTime())) draft.dueDate = format(parsed, 'yyyy-MM-dd');
-    title = title.replace(dateMatch[0], '').trim();
-  }
-
-  const timeMatch = title.match(/(?:上午|下午|晚上)?\s*(\d{1,2})(?::|点)(\d{1,2})?/);
-  if (timeMatch) {
-    let hour = Number(timeMatch[1]);
-    if (/下午|晚上/.test(timeMatch[0]) && hour < 12) hour += 12;
-    if (/上午/.test(timeMatch[0]) && hour === 12) hour = 0;
-    if (hour <= 23) {
-      draft.dueTime = `${String(hour).padStart(2, '0')}:${String(Number(timeMatch[2] ?? 0)).padStart(2, '0')}`;
-      draft.allDay = false;
-      title = title.replace(timeMatch[0], '').trim();
-    }
-  }
-
-  const durationMatch = title.match(/(?:持续|时长)\s*(\d+(?:\.\d+)?)\s*(分钟|小时)/);
-  if (durationMatch) {
-    draft.duration = Math.max(
-      5,
-      Math.round(Number(durationMatch[1]) * (durationMatch[2] === '小时' ? 60 : 1)),
-    );
-    title = title.replace(durationMatch[0], '').trim();
-  }
-
-  const reminderMatch = title.match(/(?:提前|提醒)\s*(\d+)\s*(分钟|小时)/);
-  if (reminderMatch) {
-    const offset = Number(reminderMatch[1]) * (reminderMatch[2] === '小时' ? 60 : 1);
-    draft.reminderMinutes = offset;
-    draft.reminders = [createReminder(offset)];
-    title = title.replace(reminderMatch[0], '').trim();
-  }
-
-  return { draft: { ...draft, title: title.replace(/\s{2,}/g, ' ').trim() }, tagNames: tags };
-}
-
 function shiftEndDate(dueDate: string, endDate: string | null, nextDueDate: string): string | null {
   if (!endDate) return null;
   const span = differenceInCalendarDays(parseISO(endDate), parseISO(dueDate));
@@ -940,6 +900,7 @@ export function parseBackup(text: string): BackupPayload {
         reminderTime: habit.reminderTime ?? null,
         skippedDates: habit.skippedDates ?? [],
       })),
+      reminderDeliveries: value.reminderDeliveries ?? [],
       sections: value.sections.map((section) => ({
         ...section,
         wipLimit: section.wipLimit ?? null,
@@ -1000,6 +961,7 @@ export function parseBackup(text: string): BackupPayload {
       focusSessions: [],
       folders,
       habits: [],
+      reminderDeliveries: [],
       settings: { ...defaultAppSettings, ...(candidate.settings as object | undefined) },
       sections: [],
       tags: candidate.tags as BackupPayload['tags'],
@@ -1050,6 +1012,7 @@ function normalizeBackupDraft(draft: Partial<TaskDraft>, categoryId: string): Ta
     recurrence: task.recurrence,
     reminderMinutes: task.reminderMinutes,
     reminders: task.reminders,
+    scheduleLocked: task.scheduleLocked,
     sectionId: task.sectionId,
     subtasks: task.subtasks,
     tagIds: task.tagIds,
@@ -1122,7 +1085,12 @@ function normalizeBackupTask(task: Partial<Task>, order: number, categoryId: str
       : null,
     reminderMinutes,
     reminders:
-      task.reminders ?? (reminderMinutes === null ? [] : [createReminder(reminderMinutes)]),
+      task.reminders?.map((reminder) => ({
+        ...reminder,
+        repeatCount: reminder.repeatCount ?? 1,
+        repeatIntervalMinutes: reminder.repeatIntervalMinutes ?? null,
+      })) ?? (reminderMinutes === null ? [] : [createReminder(reminderMinutes)]),
+    scheduleLocked: task.scheduleLocked ?? false,
     seriesId: task.seriesId ?? (task.recurrence ? createId('series') : null),
     sectionId: task.sectionId ?? null,
     subtasks: (task.subtasks ?? []).map((subtask) => ({

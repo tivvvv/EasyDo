@@ -46,7 +46,10 @@ export async function sendLocalReminder(options: {
   });
 }
 
-export async function syncScheduledTaskReminders(tasks: readonly Task[]): Promise<number> {
+export async function syncScheduledTaskReminders(
+  tasks: readonly Task[],
+  onScheduled?: (keys: string[]) => Promise<void>,
+): Promise<number> {
   if (!isTauriRuntime()) return 0;
   const { cancel, isPermissionGranted, pending, Schedule, sendNotification } =
     await import('@tauri-apps/plugin-notification');
@@ -66,12 +69,16 @@ export async function syncScheduledTaskReminders(tasks: readonly Task[]): Promis
     while (usedIds.has(id)) id = (id % 999_999_999) + 1;
     usedIds.add(id);
     sendNotification({
-      body: event.task.dueTime ? `计划时间 ${event.task.dueTime}.` : '任务即将开始.',
+      body:
+        event.subjectId === event.task.id
+          ? `计划时间 ${event.task.dueTime}.`
+          : `来自任务「${event.task.title}」的子任务提醒.`,
       id,
       schedule: Schedule.at(event.notifyAt),
-      title: event.task.title,
+      title: event.subjectTitle,
     });
   }
+  await onScheduled?.(events.map((event) => event.key));
   return events.length;
 }
 

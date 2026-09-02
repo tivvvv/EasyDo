@@ -1,4 +1,4 @@
-import type { Habit, Task } from '@easydo/domain';
+import type { Habit, ReminderDelivery, Task } from '@easydo/domain';
 import { getPendingReminderEvents } from '@easydo/application';
 import { useEffect, useRef } from 'react';
 
@@ -9,9 +9,20 @@ import {
   syncScheduledHabitReminders,
   syncScheduledTaskReminders,
 } from '../lib/notifications';
+import { recordReminderDeliveries } from '../sharedStorage';
 
-export function useTaskReminders(tasks: Task[], habits: Habit[] = []): void {
-  const notifiedKeys = useRef(loadNotifiedKeys());
+export function useTaskReminders(
+  tasks: Task[],
+  habits: Habit[] = [],
+  reminderDeliveries: ReminderDelivery[] = [],
+): void {
+  const notifiedKeys = useRef(
+    new Set([...loadNotifiedKeys(), ...reminderDeliveries.map((delivery) => delivery.key)]),
+  );
+
+  useEffect(() => {
+    for (const delivery of reminderDeliveries) notifiedKeys.current.add(delivery.key);
+  }, [reminderDeliveries]);
 
   useEffect(() => {
     let active = true;
@@ -22,17 +33,32 @@ export function useTaskReminders(tasks: Task[], habits: Habit[] = []): void {
       for (const event of pending) {
         notifiedKeys.current.add(event.key);
         persistNotifiedKeys(notifiedKeys.current);
+        void recordReminderDeliveries([
+          { createdAt: new Date().toISOString(), key: event.key, status: 'delivered' },
+        ]);
         void sendLocalReminder({
-          body: event.task.dueTime ? `计划时间 ${event.task.dueTime}.` : '任务即将开始.',
+          body:
+            event.overdueMinutes > 1
+              ? `提醒已延迟 ${event.overdueMinutes} 分钟, 请检查安排.`
+              : event.subjectId === event.task.id
+                ? `计划时间 ${event.task.dueTime}.`
+                : `来自任务「${event.task.title}」的子任务提醒.`,
           tag: `easydo-${event.key}`,
-          title: event.task.title,
+          title: event.subjectTitle,
         });
       }
     };
 
     const start = async () => {
       if (!(await hasReminderPermission()) || !active) return;
-      await syncScheduledTaskReminders(tasks);
+      await syncScheduledTaskReminders(tasks, async (keys) => {
+        const createdAt = new Date().toISOString();
+        const newKeys = keys.filter((key) => !notifiedKeys.current.has(key));
+        for (const key of newKeys) notifiedKeys.current.add(key);
+        await recordReminderDeliveries(
+          newKeys.map((key) => ({ createdAt, key, status: 'scheduled' })),
+        );
+      });
       await syncScheduledHabitReminders(habits);
       check();
       interval = window.setInterval(check, 15_000);

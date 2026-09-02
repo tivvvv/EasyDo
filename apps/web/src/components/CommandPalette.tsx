@@ -1,6 +1,10 @@
 import { ArrowRight, Command, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { scoreCommand } from '../lib/commandSearch';
+
+const recentCommandKey = 'easydo-recent-commands';
+
 export type CommandAction = {
   id: string;
   keywords?: string;
@@ -22,12 +26,28 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return actions;
-    return actions.filter((action) =>
-      `${action.label} ${action.section} ${action.keywords ?? ''}`
-        .toLocaleLowerCase()
-        .includes(normalized),
-    );
+    const recentIds = loadRecentCommandIds();
+    if (!normalized) {
+      return [...actions].sort((left, right) => {
+        const leftIndex = recentIds.indexOf(left.id);
+        const rightIndex = recentIds.indexOf(right.id);
+        if (leftIndex < 0 && rightIndex < 0) return 0;
+        if (leftIndex < 0) return 1;
+        if (rightIndex < 0) return -1;
+        return leftIndex - rightIndex;
+      });
+    }
+    return actions
+      .map((action) => ({
+        action,
+        score: scoreCommand(
+          `${action.label} ${action.section} ${action.keywords ?? ''}`.toLocaleLowerCase(),
+          normalized,
+        ),
+      }))
+      .filter((result) => result.score >= 0)
+      .sort((left, right) => right.score - left.score)
+      .map((result) => result.action);
   }, [actions, query]);
 
   useEffect(() => {
@@ -36,6 +56,7 @@ export function CommandPalette({
 
   const execute = (action: CommandAction | undefined) => {
     if (!action) return;
+    persistRecentCommand(action.id);
     onClose();
     action.run();
   };
@@ -58,7 +79,7 @@ export function CommandPalette({
               if (event.key === 'Escape') onClose();
               else if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                setSelectedIndex((index) => Math.min(index + 1, filtered.length - 1));
+                setSelectedIndex((index) => Math.max(0, Math.min(index + 1, filtered.length - 1)));
               } else if (event.key === 'ArrowUp') {
                 event.preventDefault();
                 setSelectedIndex((index) => Math.max(0, index - 1));
@@ -115,4 +136,24 @@ export function CommandPalette({
       </section>
     </div>
   );
+}
+
+function loadRecentCommandIds(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(recentCommandKey) ?? '[]');
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string').slice(0, 6)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentCommand(id: string): void {
+  try {
+    const recent = loadRecentCommandIds().filter((item) => item !== id);
+    localStorage.setItem(recentCommandKey, JSON.stringify([id, ...recent].slice(0, 6)));
+  } catch {
+    // 隐私模式或受限 WebView 禁用存储时, 命令本身仍应正常执行.
+  }
 }

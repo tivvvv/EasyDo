@@ -53,6 +53,7 @@ type TaskDialogProps = {
   defaultTime?: string | null;
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
+  onSaveComments?: (id: string, comments: NonNullable<Task['comments']>) => Promise<void>;
   onSave: (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => Promise<void>;
   onSaveTemplate: (name: string, draft: TaskDraft) => Promise<void>;
   open: boolean;
@@ -102,6 +103,7 @@ export function TaskDialog({
   onClose,
   onDelete,
   onSave,
+  onSaveComments,
   onSaveTemplate,
   open,
   sections,
@@ -137,6 +139,7 @@ export function TaskDialog({
           recurrence: task.recurrence,
           reminderMinutes: task.reminderMinutes,
           reminders: task.reminders,
+          scheduleLocked: task.scheduleLocked ?? false,
           sectionId: task.sectionId,
           subtasks: task.subtasks,
           tagIds: task.tagIds,
@@ -160,6 +163,7 @@ export function TaskDialog({
   const [recurrenceScope, setRecurrenceScope] = useState<RecurrenceEditScope>('future');
   const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [savingComment, setSavingComment] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -210,6 +214,31 @@ export function TaskDialog({
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveComments = async (comments: NonNullable<Task['comments']>) => {
+    setDraft((current) => ({ ...current, comments }));
+    if (!task || !onSaveComments) return;
+    setSavingComment(true);
+    try {
+      await onSaveComments(task.id, comments);
+    } catch {
+      setError('评论保存失败, 请重试.');
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  const appendComment = () => {
+    const content = commentText.trim();
+    if (!content || savingComment) return;
+    const createdAt = new Date().toISOString();
+    const comments = [
+      ...(draft.comments ?? []),
+      { content, createdAt, id: createId('comment'), updatedAt: createdAt },
+    ];
+    setCommentText('');
+    void saveComments(comments);
   };
 
   return (
@@ -349,10 +378,9 @@ export function TaskDialog({
                     <button
                       aria-label="删除评论"
                       onClick={() =>
-                        setDraft({
-                          ...draft,
-                          comments: (draft.comments ?? []).filter((item) => item.id !== comment.id),
-                        })
+                        void saveComments(
+                          (draft.comments ?? []).filter((item) => item.id !== comment.id),
+                        )
                       }
                       type="button"
                     >
@@ -370,17 +398,7 @@ export function TaskDialog({
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' || event.shiftKey) return;
                   event.preventDefault();
-                  const content = commentText.trim();
-                  if (!content) return;
-                  const createdAt = new Date().toISOString();
-                  setDraft({
-                    ...draft,
-                    comments: [
-                      ...(draft.comments ?? []),
-                      { content, createdAt, id: createId('comment'), updatedAt: createdAt },
-                    ],
-                  });
-                  setCommentText('');
+                  appendComment();
                 }}
                 placeholder="记录进展或补充上下文. Enter 添加, Shift + Enter 换行."
                 rows={2}
@@ -388,26 +406,16 @@ export function TaskDialog({
               />
               <button
                 aria-label="提交评论"
-                disabled={!commentText.trim()}
-                onClick={() => {
-                  const content = commentText.trim();
-                  if (!content) return;
-                  const createdAt = new Date().toISOString();
-                  setDraft({
-                    ...draft,
-                    comments: [
-                      ...(draft.comments ?? []),
-                      { content, createdAt, id: createId('comment'), updatedAt: createdAt },
-                    ],
-                  });
-                  setCommentText('');
-                }}
+                disabled={!commentText.trim() || savingComment}
+                onClick={appendComment}
                 type="button"
               >
                 <Send size={15} />
               </button>
             </div>
-            <p className="field-hint">评论会随任务一起保存, 也可以通过搜索找到.</p>
+            <p className="field-hint">
+              {task ? '评论提交后立即保存, 也可以通过搜索找到.' : '评论会随新任务一起保存.'}
+            </p>
           </section>
 
           <div className="field-grid">
@@ -612,6 +620,30 @@ export function TaskDialog({
                     <option value="start">开始时间</option>
                     <option value="end">结束时间</option>
                   </select>
+                  <select
+                    aria-label={`${formatReminder(reminder.offsetMinutes)}重复提醒`}
+                    onChange={(event) => {
+                      const repeatIntervalMinutes = Number(event.target.value) || null;
+                      setDraft({
+                        ...draft,
+                        reminders: draft.reminders.map((item) =>
+                          item.id === reminder.id
+                            ? {
+                                ...item,
+                                repeatCount: repeatIntervalMinutes ? 3 : 1,
+                                repeatIntervalMinutes,
+                              }
+                            : item,
+                        ),
+                      });
+                    }}
+                    value={reminder.repeatIntervalMinutes ?? ''}
+                  >
+                    <option value="">提醒一次</option>
+                    <option value="5">每 5 分钟, 共 3 次</option>
+                    <option value="10">每 10 分钟, 共 3 次</option>
+                    <option value="30">每 30 分钟, 共 3 次</option>
+                  </select>
                   <button
                     aria-label={`删除${formatReminder(reminder.offsetMinutes)}提醒`}
                     onClick={() => {
@@ -630,6 +662,19 @@ export function TaskDialog({
               ))}
             </div>
           )}
+
+          <label className="toggle-row task-schedule-lock">
+            <input
+              checked={draft.scheduleLocked ?? false}
+              disabled={!draft.dueDate}
+              onChange={(event) => setDraft({ ...draft, scheduleLocked: event.target.checked })}
+              type="checkbox"
+            />
+            <span>
+              <strong>锁定时间块</strong>
+              <small>自动规划不会移动或移除这个任务.</small>
+            </span>
+          </label>
 
           {draft.recurrence && (
             <div className="recurrence-options">

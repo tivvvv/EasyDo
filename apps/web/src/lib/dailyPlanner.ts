@@ -17,6 +17,7 @@ export function getPlanningCandidates(tasks: readonly Task[], date: string): Tas
       (task) =>
         !task.completedAt &&
         !task.deletedAt &&
+        !task.scheduleLocked &&
         task.dueDate !== date &&
         (!task.dueDate || task.dueDate < date),
     )

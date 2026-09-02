@@ -215,7 +215,7 @@ export function App() {
     );
   };
 
-  useTaskReminders(data?.tasks ?? [], data?.habits ?? []);
+  useTaskReminders(data?.tasks ?? [], data?.habits ?? [], data?.reminderDeliveries ?? []);
 
   useEffect(() => {
     const theme = data?.settings.theme ?? 'system';
@@ -859,6 +859,7 @@ export function App() {
                     : '未获得通知权限.',
               );
             }}
+            reminderDeliveryCount={(data.reminderDeliveries ?? []).length}
             onUpdateSettings={async (patch) => {
               await updateSettings(patch);
               showToast('日历偏好已保存.');
@@ -966,6 +967,10 @@ export function App() {
               showToast('任务已移到回收站.', true);
             }}
             onSave={saveTask}
+            onSaveComments={async (id, comments) => {
+              await taskService.update(id, { comments });
+              showToast('评论已保存.');
+            }}
             onSaveTemplate={async (name, draft) => {
               await addTemplate(name, draft);
               showToast('任务模板已保存.');
@@ -1228,6 +1233,7 @@ function SettingsView({
   onExportIcs,
   onImportIcs,
   onRequestReminder,
+  reminderDeliveryCount,
   onDeleteTemplate,
   onUpdateSettings,
   settings,
@@ -1242,6 +1248,7 @@ function SettingsView({
   onExportIcs: () => void;
   onImportIcs: (file: File) => Promise<void>;
   onRequestReminder: () => Promise<void>;
+  reminderDeliveryCount: number;
   onDeleteTemplate: (id: string) => Promise<void>;
   onUpdateSettings: (patch: Partial<Omit<AppSettings, 'id'>>) => Promise<void>;
   settings: AppSettings;
@@ -1601,7 +1608,10 @@ function SettingsView({
       <div className="settings-row">
         <div>
           <strong>任务提醒</strong>
-          <p>允许 EasyDo 在任务开始前发送本地通知.</p>
+          <p>
+            允许 EasyDo 在任务开始前发送本地通知. 已共享记录最近 {reminderDeliveryCount}{' '}
+            次调度与投递, 避免网页端和客户端重复提醒.
+          </p>
         </div>
         <button className="secondary-button" onClick={() => void onRequestReminder()} type="button">
           开启提醒

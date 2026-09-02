@@ -331,9 +331,30 @@ test('使用命令面板完成每日规划并搜索任务评论', async ({ page,
   await page.getByRole('button', { name: '完整编辑' }).click();
   await page.getByLabel('添加评论').fill('等待设计评审确认');
   await page.getByRole('button', { name: '提交评论' }).click();
-  await page.getByRole('button', { name: '保存更改' }).click();
+  await expect(page.getByText('评论已保存.')).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
   await page.getByLabel('搜索任务').fill('设计评审');
   await expect(page.getByText('规划今天最重要的三件事').first()).toBeVisible();
+});
+
+test('快速收集识别分类, 重复规则和锁定时间块', async ({ page, isMobile }) => {
+  test.skip(isMobile, '精细任务设置由桌面端覆盖.');
+  await page.goto('/');
+  await page.getByLabel('快速添加任务').fill('下周一早上 例会 @工作 #例行 !高 提前10分钟 每周');
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await page.getByText('例会').first().click();
+  await page.getByRole('button', { name: '完整编辑' }).click();
+  await expect(page.getByRole('combobox', { name: '分类', exact: true })).toHaveValue(
+    'category-work',
+  );
+  await expect(page.getByRole('combobox', { name: '重复', exact: true })).toHaveValue('weekly');
+  await expect(page.getByLabel('已设置提醒')).toContainText('提前 10 分钟');
+  await page.getByText('锁定时间块').click();
+  await page.getByRole('button', { name: '保存更改' }).click();
+  await page.keyboard.press('Control+P');
+  await page.getByLabel('搜索命令').fill('打日历');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.calendar-layout')).toBeVisible();
 });
 
 test('管理看板分区, 习惯和效率统计', async ({ page, isMobile }) => {

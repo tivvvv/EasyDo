@@ -49,6 +49,15 @@ export function mergeWorkspaces(primary: BackupPayload, secondary: BackupPayload
         ...new Set([...(current.skippedDates ?? []), ...(incoming.skippedDates ?? [])]),
       ].sort(),
     })),
+    reminderDeliveries: [
+      ...new Map(
+        [...(primary.reminderDeliveries ?? []), ...(secondary.reminderDeliveries ?? [])].map(
+          (delivery) => [delivery.key, delivery],
+        ),
+      ).values(),
+    ]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(-1_000),
     sections: mergeById(primary.sections, secondary.sections),
     settings: { ...defaultAppSettings, ...secondary.settings, ...primary.settings },
     tags: mergeById(primary.tags, secondary.tags),
@@ -105,6 +114,7 @@ export function createInitialWorkspace(now = new Date()): BackupPayload {
     recurrence: null,
     reminderMinutes: null,
     reminders: [],
+    scheduleLocked: false,
     sectionId: null,
     seriesId: null,
     subtasks: [],
@@ -134,6 +144,7 @@ export function createInitialWorkspace(now = new Date()): BackupPayload {
     focusSessions: [],
     folders: [],
     habits: [],
+    reminderDeliveries: [],
     sections: [],
     settings: { ...defaultAppSettings },
     tags: [

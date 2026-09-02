@@ -1,4 +1,4 @@
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 pub mod data_service;
 
@@ -28,6 +28,32 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+fn show_quick_capture_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("quick-capture") {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "quick-capture",
+        tauri::WebviewUrl::App("index.html?capture=1".into()),
+    )
+    .title("EasyDo 快速收集")
+    .inner_size(560.0, 190.0)
+    .min_inner_size(460.0, 170.0)
+    .always_on_top(true)
+    .center()
+    .build()
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn show_quick_capture(app: tauri::AppHandle) -> Result<(), String> {
+    show_quick_capture_window(&app)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -39,7 +65,7 @@ pub fn run() {
                 .app_name("EasyDo")
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![set_dock_badge])
+        .invoke_handler(tauri::generate_handler![set_dock_badge, show_quick_capture])
         .setup(|app| {
             let database_path = app.path().app_config_dir()?.join("easydo.db");
             data_service::start(database_path).map_err(std::io::Error::other)?;
@@ -78,8 +104,9 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => show_main_window(app),
                         "quick-add" => {
-                            show_main_window(app);
-                            let _ = app.emit("easydo:quick-add", ());
+                            if let Err(error) = show_quick_capture_window(app) {
+                                log::error!("无法打开快速收集窗口: {error}");
+                            }
                         }
                         "open-browser" => {
                             if let Err(error) = open::that(data_service::DATA_SERVICE_URL) {

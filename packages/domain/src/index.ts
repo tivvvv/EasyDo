@@ -8,6 +8,14 @@ export type Reminder = {
   id: string;
   offsetMinutes: number;
   reference: 'end' | 'start';
+  repeatCount?: number;
+  repeatIntervalMinutes?: number | null;
+};
+
+export type ReminderDelivery = {
+  createdAt: string;
+  key: string;
+  status: 'delivered' | 'scheduled';
 };
 
 export type TaskComment = {
@@ -115,6 +123,7 @@ export type Task = {
   recurrence: RecurrenceRule | null;
   reminderMinutes: number | null;
   reminders: Reminder[];
+  scheduleLocked?: boolean;
   order: number;
   seriesId: string | null;
   sectionId: string | null;
@@ -267,7 +276,9 @@ export type TaskDraft = Pick<
   | 'timeZone'
   | 'title'
 > &
-  Partial<Pick<Task, 'comments' | 'dependencyIds' | 'estimateMinutes' | 'milestone'>>;
+  Partial<
+    Pick<Task, 'comments' | 'dependencyIds' | 'estimateMinutes' | 'milestone' | 'scheduleLocked'>
+  >;
 
 export type TaskPatch = Partial<TaskDraft>;
 
@@ -280,6 +291,7 @@ export type BackupPayload = {
   focusSessions: FocusSession[];
   folders: Folder[];
   habits: Habit[];
+  reminderDeliveries?: ReminderDelivery[];
   settings: AppSettings;
   sections: Section[];
   tags: Tag[];
@@ -337,7 +349,13 @@ export function createReminder(
   offsetMinutes: number,
   reference: Reminder['reference'] = 'start',
 ): Reminder {
-  return { id: createId('reminder'), offsetMinutes, reference };
+  return {
+    id: createId('reminder'),
+    offsetMinutes,
+    reference,
+    repeatCount: 1,
+    repeatIntervalMinutes: null,
+  };
 }
 
 export function createSubtask(title = ''): Subtask {
@@ -512,6 +530,9 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
     candidate.sections.every(isSectionRecord) &&
     Array.isArray(candidate.habits) &&
     candidate.habits.every(isHabitRecord) &&
+    (candidate.reminderDeliveries === undefined ||
+      (Array.isArray(candidate.reminderDeliveries) &&
+        candidate.reminderDeliveries.every(isReminderDeliveryRecord))) &&
     Array.isArray(candidate.focusSessions) &&
     candidate.focusSessions.every(isFocusSessionRecord) &&
     Array.isArray(candidate.countdowns) &&
@@ -520,6 +541,16 @@ export function isBackupPayload(value: unknown): value is BackupPayload {
     candidate.activities.every(isActivityRecord) &&
     isSettingsRecord(candidate.settings) &&
     typeof candidate.exportedAt === 'string'
+  );
+}
+
+function isReminderDeliveryRecord(value: unknown): value is ReminderDelivery {
+  if (!value || typeof value !== 'object') return false;
+  const delivery = value as Partial<ReminderDelivery>;
+  return (
+    typeof delivery.key === 'string' &&
+    typeof delivery.createdAt === 'string' &&
+    ['delivered', 'scheduled'].includes(delivery.status ?? '')
   );
 }
 
@@ -571,6 +602,7 @@ function isTaskDraftRecord(value: unknown): value is TaskDraft {
     (task.reminderMinutes === null || Number.isFinite(task.reminderMinutes)) &&
     Array.isArray(task.reminders) &&
     task.reminders.every(isReminderRecord) &&
+    (task.scheduleLocked === undefined || typeof task.scheduleLocked === 'boolean') &&
     Array.isArray(task.tagIds) &&
     task.tagIds.every((tagId) => typeof tagId === 'string') &&
     Array.isArray(task.subtasks) &&
@@ -608,7 +640,13 @@ function isReminderRecord(value: unknown): value is Reminder {
   return (
     typeof reminder.id === 'string' &&
     Number.isFinite(reminder.offsetMinutes) &&
-    ['end', 'start'].includes(reminder.reference ?? '')
+    ['end', 'start'].includes(reminder.reference ?? '') &&
+    (reminder.repeatCount === undefined ||
+      (Number.isInteger(reminder.repeatCount) && Number(reminder.repeatCount) >= 1)) &&
+    (reminder.repeatIntervalMinutes === undefined ||
+      reminder.repeatIntervalMinutes === null ||
+      (Number.isInteger(reminder.repeatIntervalMinutes) &&
+        Number(reminder.repeatIntervalMinutes) >= 1))
   );
 }
 
