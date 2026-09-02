@@ -327,6 +327,12 @@ test('使用命令面板完成每日规划并搜索任务评论', async ({ page,
   await expect(planner.getByText('待规划的深度工作')).toBeVisible();
   await planner.getByRole('button', { name: '关闭今日计划' }).click();
 
+  await page.keyboard.press('Control+P');
+  await page.getByLabel('搜索命令').fill('待规划深度');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: /编辑任务: 待规划的深度工作/ })).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
+
   await page.getByText('规划今天最重要的三件事').first().click();
   await page.getByRole('button', { name: '完整编辑' }).click();
   await page.getByLabel('添加评论').fill('等待设计评审确认');

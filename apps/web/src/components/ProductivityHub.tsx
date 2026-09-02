@@ -1,6 +1,7 @@
 import type { Priority, Task } from '@easydo/domain';
 import { priorityLabels, taskProgress } from '@easydo/domain';
 import { addDays, differenceInCalendarDays, format, parseISO, startOfDay, subDays } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
 import {
   BarChart3,
   Columns3,
@@ -288,7 +289,11 @@ function Timeline({ onEdit, tasks }: { onEdit: (task: Task) => void; tasks: Task
               {(rangeDays <= 14 || index % (rangeDays === 30 ? 3 : 7) === 0) && (
                 <>
                   <strong>{format(day, 'd')}</strong>
-                  <small>{format(day, index === 0 || day.getDate() === 1 ? 'M 月' : 'EEE')}</small>
+                  <small>
+                    {format(day, index === 0 || day.getDate() === 1 ? 'M 月' : 'EEE', {
+                      locale: zhCN,
+                    })}
+                  </small>
                 </>
               )}
             </span>
@@ -542,7 +547,7 @@ function Statistics(props: ProductivityHubProps) {
               return (
                 <span key={key}>
                   <i style={{ height: `${Math.max(8, count * 24)}px` }} />
-                  <small>{format(day, 'EEE')}</small>
+                  <small>{format(day, 'EEE', { locale: zhCN })}</small>
                   <b>{count}</b>
                 </span>
               );

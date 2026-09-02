@@ -357,6 +357,19 @@ export function App() {
       run: () => chooseView(target),
       section: '导航',
     })),
+    ...activeTasks
+      .filter((task) => !task.completedAt)
+      .slice(0, 30)
+      .map((task) => ({
+        id: `task-${task.id}`,
+        keywords: `${task.notes} ${task.subtasks.map((subtask) => subtask.title).join(' ')}`,
+        label: task.title,
+        run: () => {
+          setEditingTask(task);
+          setTaskDialogOpen(true);
+        },
+        section: '任务',
+      })),
     ...(
       [
         ['day', '切换到日视图'],

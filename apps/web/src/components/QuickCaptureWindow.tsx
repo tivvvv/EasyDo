@@ -1,4 +1,4 @@
-import { CheckCircle2, Command } from 'lucide-react';
+import { CheckCircle2, CornerDownLeft } from 'lucide-react';
 import { useState } from 'react';
 
 import { taskService } from '../application';
@@ -15,9 +15,9 @@ export function QuickCaptureWindow() {
   return (
     <main className="capture-window">
       <header data-tauri-drag-region>
-        <span>EasyDo 快速收集</span>
+        <span>写下任务, 其他信息可以稍后补充.</span>
         <small>
-          <Command size={12} /> Enter 保存
+          <CornerDownLeft size={12} /> Enter 保存
         </small>
       </header>
       <QuickCapture

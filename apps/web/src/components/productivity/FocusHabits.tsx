@@ -3,6 +3,7 @@ import { calculateHabitStreak } from '@easydo/domain';
 import { endOfWeek, format, parseISO, startOfWeek, subDays } from 'date-fns';
 import {
   Bell,
+  Flame,
   Maximize2,
   Minimize2,
   Pause,
@@ -338,7 +339,15 @@ export function HabitTracker(props: ProductivityHubProps) {
             </article>
           );
         })}
-        {props.habits.length === 0 && <p className="hub-empty">创建第一个习惯, 从今天开始打卡.</p>}
+        {props.habits.length === 0 && (
+          <div className="hub-empty hub-empty-card">
+            <span aria-hidden="true">
+              <Flame size={22} />
+            </span>
+            <strong>还没有习惯</strong>
+            <small>在上方输入一个容易坚持的小目标, 从今天开始记录.</small>
+          </div>
+        )}
       </div>
       {props.habits.some((habit) => habit.logs.includes(todayKey)) && (
         <p className="habit-cheer">今天已经开始积累了.</p>

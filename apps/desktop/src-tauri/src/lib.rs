@@ -40,8 +40,8 @@ fn show_quick_capture_window(app: &tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("index.html?capture=1".into()),
     )
     .title("EasyDo 快速收集")
-    .inner_size(560.0, 190.0)
-    .min_inner_size(460.0, 170.0)
+    .inner_size(560.0, 210.0)
+    .min_inner_size(460.0, 190.0)
     .always_on_top(true)
     .center()
     .build()
