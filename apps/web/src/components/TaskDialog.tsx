@@ -40,6 +40,7 @@ import {
 import { useEffect, useId, useState } from 'react';
 
 import { useAppDialog } from './AppDialog';
+import { LocalizedDateInput } from './LocalizedDateInput';
 
 type TaskDialogProps = {
   categories: Category[];
@@ -415,9 +416,10 @@ export function TaskDialog({
                 <CalendarDays size={14} />
                 日期
               </span>
-              <input
-                onChange={(event) => {
-                  const dueDate = event.target.value || null;
+              <LocalizedDateInput
+                ariaLabel="日期"
+                onChange={(value) => {
+                  const dueDate = value || null;
                   setDraft({
                     ...draft,
                     dueDate,
@@ -428,17 +430,16 @@ export function TaskDialog({
                     recurrence: dueDate ? draft.recurrence : null,
                   });
                 }}
-                type="date"
                 value={draft.dueDate ?? ''}
               />
             </label>
             <label className="field">
               <span>结束日期</span>
-              <input
+              <LocalizedDateInput
+                ariaLabel="结束日期"
                 disabled={!draft.dueDate}
                 min={draft.dueDate ?? undefined}
-                onChange={(event) => setDraft({ ...draft, endDate: event.target.value || null })}
-                type="date"
+                onChange={(value) => setDraft({ ...draft, endDate: value || null })}
                 value={draft.endDate ?? ''}
               />
             </label>
@@ -781,17 +782,17 @@ export function TaskDialog({
                 )}
               <label className="field">
                 <span>结束日期</span>
-                <input
+                <LocalizedDateInput
+                  ariaLabel="重复结束日期"
                   min={draft.dueDate ?? undefined}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraft({
                       ...draft,
                       recurrence: draft.recurrence
-                        ? { ...draft.recurrence, endsOn: event.target.value || null }
+                        ? { ...draft.recurrence, endsOn: value || null }
                         : null,
                     })
                   }
-                  type="date"
                   value={draft.recurrence.endsOn ?? ''}
                 />
               </label>
@@ -973,19 +974,16 @@ export function TaskDialog({
                     <div>
                       <label>
                         日期
-                        <input
-                          aria-label={`子任务 ${index + 1} 日期`}
-                          onChange={(event) =>
+                        <LocalizedDateInput
+                          ariaLabel={`子任务 ${index + 1} 日期`}
+                          onChange={(value) =>
                             setDraft({
                               ...draft,
                               subtasks: draft.subtasks.map((item) =>
-                                item.id === subtask.id
-                                  ? { ...item, dueDate: event.target.value || null }
-                                  : item,
+                                item.id === subtask.id ? { ...item, dueDate: value || null } : item,
                               ),
                             })
                           }
-                          type="date"
                           value={subtask.dueDate ?? ''}
                         />
                       </label>
@@ -1284,56 +1282,59 @@ export function TaskDialog({
         </div>
 
         <footer className="dialog-footer">
-          {task && (
+          <div className="dialog-footer-start">
+            {task && (
+              <button
+                className="danger-button"
+                onClick={async () => {
+                  if (
+                    await dialog.confirm({
+                      confirmText: '移到回收站',
+                      danger: true,
+                      description: '任务可以稍后从回收站恢复.',
+                      title: `确定删除任务 "${task.title}" 吗?`,
+                    })
+                  ) {
+                    await onDelete(task.id);
+                    onClose();
+                  }
+                }}
+                type="button"
+              >
+                <Trash2 size={16} />
+                删除
+              </button>
+            )}
+          </div>
+          <div className="dialog-footer-actions">
             <button
-              className="danger-button"
+              className="secondary-button"
+              disabled={!draft.title.trim()}
               onClick={async () => {
-                if (
-                  await dialog.confirm({
-                    confirmText: '移到回收站',
-                    danger: true,
-                    description: '任务可以稍后从回收站恢复.',
-                    title: `确定删除任务 "${task.title}" 吗?`,
-                  })
-                ) {
-                  await onDelete(task.id);
-                  onClose();
-                }
+                const name = await dialog.prompt({
+                  initialValue: draft.title.trim(),
+                  label: '模板名称',
+                  title: '保存任务模板',
+                });
+                if (name?.trim()) void onSaveTemplate(name.trim(), draft);
               }}
               type="button"
             >
-              <Trash2 size={16} />
-              删除
+              <BookmarkPlus size={16} />
+              保存模板
             </button>
-          )}
-          <span />
-          <button
-            className="secondary-button"
-            disabled={!draft.title.trim()}
-            onClick={async () => {
-              const name = await dialog.prompt({
-                initialValue: draft.title.trim(),
-                label: '模板名称',
-                title: '保存任务模板',
-              });
-              if (name?.trim()) void onSaveTemplate(name.trim(), draft);
-            }}
-            type="button"
-          >
-            <BookmarkPlus size={16} />
-            保存模板
-          </button>
-          <button className="secondary-button" onClick={onClose} type="button">
-            取消
-          </button>
-          <button
-            className="primary-button"
-            disabled={saving}
-            onClick={() => void save()}
-            type="button"
-          >
-            {saving ? '保存中...' : task ? '保存更改' : '创建任务'}
-          </button>
+            <button className="secondary-button" onClick={onClose} type="button">
+              取消
+            </button>
+            <button
+              className="primary-button"
+              disabled={saving}
+              onClick={() => void save()}
+              type="button"
+            >
+              {saving ? '保存中...' : task ? '保存更改' : '创建任务'}
+            </button>
+          </div>
         </footer>
       </section>
     </div>

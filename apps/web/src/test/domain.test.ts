@@ -301,6 +301,16 @@ describe('任务领域规则', () => {
     expect(isBackupPayload({ ...value, folders: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, habits: [{ id: 'broken' }] })).toBe(false);
     expect(isBackupPayload({ ...value, sections: [{ id: 'broken' }] })).toBe(false);
+    const legacySettings: Partial<typeof value.settings> = { ...value.settings };
+    delete legacySettings.accentColor;
+    delete legacySettings.interfaceDensity;
+    expect(isBackupPayload({ ...value, settings: legacySettings })).toBe(true);
+    expect(
+      isBackupPayload({ ...value, settings: { ...value.settings, accentColor: 'neon' } }),
+    ).toBe(false);
+    expect(
+      isBackupPayload({ ...value, settings: { ...value.settings, interfaceDensity: 'tiny' } }),
+    ).toBe(false);
     expect(isBackupPayload({ ...value, settings: { ...value.settings, workdayEnd: 5 } })).toBe(
       false,
     );

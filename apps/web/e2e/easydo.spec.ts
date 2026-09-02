@@ -1,10 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
 
 const workspaceApi = 'http://127.0.0.1:24873/api/v1/workspace';
 const clientHeaders = { 'X-EasyDo-Client': '1' };
+
+async function chooseExtendedCalendarMode(page: Page, label: string): Promise<void> {
+  await page.locator('.calendar-view-menu > summary').click();
+  await page.getByRole('menuitem', { name: label, exact: true }).click();
+}
 
 test.beforeEach(async ({ request }) => {
   const current = await request.get(workspaceApi, { headers: clientHeaders });
@@ -157,6 +162,13 @@ test('编辑标签并打开数据设置', async ({ page, isMobile }) => {
   await expect(page.getByText('备份与恢复')).toBeVisible();
   await expect(page.getByRole('button', { name: '导出', exact: true })).toBeVisible();
   await expect(page.getByText('任务提醒')).toBeVisible();
+  await page.getByRole('button', { name: '使用青绿强调色' }).click();
+  await page.getByRole('button', { name: '紧凑', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'green');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'green');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
 });
 
 test('快速编辑, 跨天任务和智能清单', async ({ page, isMobile }) => {
@@ -242,9 +254,9 @@ test('自然语言快速添加, 多日历和任务分组', async ({ page, isMobi
   await expect(page.getByText('任务已快速添加.')).toBeVisible();
   await expect(page.getByText('版本验收').first()).toBeVisible();
 
-  await page.getByRole('button', { name: '5 日', exact: true }).click();
+  await chooseExtendedCalendarMode(page, '5 日');
   await expect(page.locator('.time-calendar.fiveDay')).toBeVisible();
-  await page.getByRole('button', { name: '3 日', exact: true }).click();
+  await chooseExtendedCalendarMode(page, '3 日');
   await expect(page.locator('.time-calendar.threeDay')).toBeVisible();
 
   if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
@@ -289,10 +301,10 @@ test('使用年视图, 四周视图和计划收件箱', async ({ page, isMobile 
   await page.goto('/');
   await page.getByLabel('快速添加任务').fill('待安排验收任务');
   await page.getByRole('button', { name: '添加', exact: true }).click();
-  await page.getByRole('button', { name: '年', exact: true }).click();
+  await chooseExtendedCalendarMode(page, '年');
   await expect(page.locator('.year-calendar')).toBeVisible();
   await expect(page.locator('.year-month')).toHaveCount(12);
-  await page.getByRole('button', { name: '4 周', exact: true }).click();
+  await chooseExtendedCalendarMode(page, '4 周');
   await expect(page.locator('.multi-week-calendar')).toBeVisible();
   await expect(page.locator('.planning-tray')).toContainText('计划收件箱');
 });

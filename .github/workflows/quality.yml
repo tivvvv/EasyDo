@@ -28,6 +28,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm release:check
       - run: pnpm test:coverage
       - run: pnpm build
       - run: pnpm --filter @easydo/web exec playwright install --with-deps chromium

@@ -11,19 +11,12 @@ import type {
   TaskDraft,
   TaskTemplate,
 } from '@easydo/domain';
-import {
-  defaultFilterCriteria,
-  matchesTaskSearch,
-  priorityLabels,
-  sortTasks,
-} from '@easydo/domain';
+import { defaultFilterCriteria, matchesTaskSearch, sortTasks } from '@easydo/domain';
 import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
 import { format, isSameDay, startOfDay } from 'date-fns';
 import {
   CalendarDays,
   Check,
-  ChevronLeft,
-  ChevronRight,
   CirclePlus,
   Command,
   Download,
@@ -39,7 +32,6 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
-  Sparkles,
   Tag as TagIcon,
   Trash2,
   Upload,
@@ -83,6 +75,7 @@ import {
 import { taskService } from './application';
 import { useAppDialog } from './components/AppDialog';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
+import { CalendarToolbar } from './components/CalendarToolbar';
 import { CollectionDialog } from './components/CollectionDialog';
 import { CommandPalette, type CommandAction } from './components/CommandPalette';
 import { DailyPlanner } from './components/DailyPlanner';
@@ -100,7 +93,6 @@ import {
   getCalendarTitle,
   getViewTasks,
   getViewTitle,
-  navigateCalendarDate,
   type WorkspaceView,
 } from './lib/workspaceView';
 import './styles.css';
@@ -227,15 +219,19 @@ export function App() {
 
   useEffect(() => {
     const theme = data?.settings.theme ?? 'system';
+    const accentColor = data?.settings.accentColor ?? 'violet';
+    const interfaceDensity = data?.settings.interfaceDensity ?? 'comfortable';
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
       document.documentElement.dataset.theme =
         theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+      document.documentElement.dataset.accent = accentColor;
+      document.documentElement.dataset.density = interfaceDensity;
     };
     apply();
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
-  }, [data?.settings.theme]);
+  }, [data?.settings.accentColor, data?.settings.interfaceDensity, data?.settings.theme]);
 
   useEffect(() => {
     const handleRejection = (event: PromiseRejectionEvent) => {
@@ -290,6 +286,18 @@ export function App() {
   );
   const viewTasks = getViewTasks(filteredTasks, view, categories, toDateKey(today));
   const title = getViewTitle(view, categories, tags, folders);
+  const activeFilterCount =
+    Number(criteria.categoryId !== null) +
+    Number(criteria.dateRange !== 'all') +
+    Number(criteria.kind !== 'all') +
+    Number(criteria.priority !== 'all') +
+    Number(criteria.status !== 'active') +
+    criteria.tagIds.length;
+
+  const chooseCalendarMode = (mode: CalendarMode) => {
+    setCalendarMode(mode);
+    void updateSettings({ defaultCalendarMode: mode });
+  };
 
   const saveTask = async (draft: TaskDraft, id?: string, scope?: RecurrenceEditScope) => {
     if (id) {
@@ -609,7 +617,7 @@ export function App() {
       </aside>
 
       <main className="workspace">
-        <header className="topbar">
+        <header className={`topbar${view.kind === 'calendar' ? ' calendar-topbar' : ''}`}>
           <div className="topbar-copy">
             <p className="eyebrow">
               {view.kind === 'calendar' ? '日历' : view.kind === 'productivity' ? '效率' : '任务'}
@@ -650,28 +658,9 @@ export function App() {
               type="button"
             >
               <Command size={16} />
-              命令
+              <span>命令</span>
               <kbd>⌘ P</kbd>
             </button>
-            <label className="filter-select">
-              <span className="sr-only">按优先级筛选</span>
-              <select
-                onChange={(event) =>
-                  setCriteria((current) => ({
-                    ...current,
-                    priority: event.target.value as Priority | 'all',
-                  }))
-                }
-                value={criteria.priority}
-              >
-                <option value="all">全部优先级</option>
-                {(['high', 'medium', 'low', 'none'] as Priority[]).map((item) => (
-                  <option key={item} value={item}>
-                    {priorityLabels[item]}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               aria-pressed={filterOpen}
               className={`filter-toggle${filterOpen ? ' active' : ''}`}
@@ -680,108 +669,24 @@ export function App() {
             >
               <SlidersHorizontal size={16} />
               筛选
+              {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
             </button>
-            {view.kind === 'calendar' && (
-              <>
-                <input
-                  aria-label="跳转日期"
-                  className="date-jump"
-                  onChange={(event) => {
-                    if (!event.target.value) return;
-                    const date = new Date(`${event.target.value}T12:00:00`);
-                    setCurrentDate(date);
-                    setSelectedDate(date);
-                  }}
-                  type="date"
-                  value={toDateKey(selectedDate)}
-                />
-                <div className="view-switcher" aria-label="日历视图">
-                  {(
-                    [
-                      'year',
-                      'month',
-                      'multiWeek',
-                      'week',
-                      'fiveDay',
-                      'threeDay',
-                      'day',
-                      'agenda',
-                    ] as CalendarMode[]
-                  ).map((mode) => (
-                    <button
-                      className={activeCalendarMode === mode ? 'active' : ''}
-                      key={mode}
-                      onClick={() => {
-                        setCalendarMode(mode);
-                        void updateSettings({ defaultCalendarMode: mode });
-                      }}
-                      type="button"
-                    >
-                      {
-                        {
-                          agenda: '日程',
-                          day: '日',
-                          fiveDay: '5 日',
-                          month: '月',
-                          multiWeek: '4 周',
-                          threeDay: '3 日',
-                          week: '周',
-                          year: '年',
-                        }[mode]
-                      }
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="plan-day-button"
-                  onClick={() => setDailyPlannerOpen(true)}
-                  type="button"
-                >
-                  <Sparkles size={16} />
-                  规划
-                </button>
-                <button
-                  className="today-button"
-                  onClick={() => {
-                    setCurrentDate(today);
-                    setSelectedDate(today);
-                  }}
-                  type="button"
-                >
-                  今天
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="上一段时间"
-                  onClick={() =>
-                    setCurrentDate(
-                      navigateCalendarDate(
-                        currentDate,
-                        activeCalendarMode,
-                        -1,
-                        settings.agendaDays,
-                      ),
-                    )
-                  }
-                  type="button"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="下一段时间"
-                  onClick={() =>
-                    setCurrentDate(
-                      navigateCalendarDate(currentDate, activeCalendarMode, 1, settings.agendaDays),
-                    )
-                  }
-                  type="button"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </>
-            )}
           </div>
+          {view.kind === 'calendar' && (
+            <CalendarToolbar
+              agendaDays={settings.agendaDays}
+              currentDate={currentDate}
+              mode={activeCalendarMode}
+              onChangeMode={chooseCalendarMode}
+              onJump={(date) => {
+                setCurrentDate(date);
+                setSelectedDate(date);
+              }}
+              onNavigate={setCurrentDate}
+              onPlan={() => setDailyPlannerOpen(true)}
+              selectedDate={selectedDate}
+            />
+          )}
         </header>
 
         <QuickCapture
@@ -1384,23 +1289,89 @@ function SettingsView({
           <span>标签</span>
         </article>
       </div>
+      <div className="settings-row appearance-settings-row">
+        <div>
+          <strong>外观个性化</strong>
+          <p>选择明暗模式, 强调色和界面密度.</p>
+        </div>
+        <div className="appearance-controls">
+          <div className="appearance-control">
+            <span>显示模式</span>
+            <div aria-label="显示模式" className="setting-segmented" role="group">
+              {(
+                [
+                  ['system', '跟随系统'],
+                  ['light', '浅色'],
+                  ['dark', '深色'],
+                ] as const
+              ).map(([theme, label]) => (
+                <button
+                  aria-pressed={settings.theme === theme}
+                  className={settings.theme === theme ? 'active' : ''}
+                  key={theme}
+                  onClick={() => void onUpdateSettings({ theme })}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="appearance-control">
+            <span>强调色</span>
+            <div aria-label="强调色" className="accent-choices" role="group">
+              {(
+                [
+                  ['violet', '紫罗兰'],
+                  ['blue', '海蓝'],
+                  ['green', '青绿'],
+                  ['orange', '暖橙'],
+                  ['rose', '玫红'],
+                ] as const
+              ).map(([accentColor, label]) => (
+                <button
+                  aria-label={`使用${label}强调色`}
+                  aria-pressed={settings.accentColor === accentColor}
+                  className={`accent-${accentColor}${settings.accentColor === accentColor ? ' active' : ''}`}
+                  key={accentColor}
+                  onClick={() => void onUpdateSettings({ accentColor })}
+                  title={label}
+                  type="button"
+                >
+                  {settings.accentColor === accentColor && <Check size={14} />}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="appearance-control">
+            <span>界面密度</span>
+            <div aria-label="界面密度" className="setting-segmented" role="group">
+              {(
+                [
+                  ['comfortable', '舒适'],
+                  ['compact', '紧凑'],
+                ] as const
+              ).map(([interfaceDensity, label]) => (
+                <button
+                  aria-pressed={settings.interfaceDensity === interfaceDensity}
+                  className={settings.interfaceDensity === interfaceDensity ? 'active' : ''}
+                  key={interfaceDensity}
+                  onClick={() => void onUpdateSettings({ interfaceDensity })}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="settings-row">
         <div>
-          <strong>外观和专注</strong>
-          <p>选择主题并设置番茄钟时长.</p>
+          <strong>专注节奏</strong>
+          <p>设置番茄钟, 休息时长和循环轮次.</p>
         </div>
         <div className="settings-inline-fields">
-          <select
-            aria-label="主题"
-            onChange={(event) =>
-              void onUpdateSettings({ theme: event.target.value as AppSettings['theme'] })
-            }
-            value={settings.theme}
-          >
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
           <label>
             专注分钟
             <input

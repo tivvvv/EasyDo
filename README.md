@@ -57,14 +57,14 @@ EasyDo 是一个 local-first 的任务管理和日历应用. 当前提供 Web �
 - 效率工作台提供可就地创建的任务看板, 带日期刻度和范围导航的时间线, 可配置紧急范围的四象限, 番茄专注, 习惯打卡, 倒数日和完成趋势统计.
 - 专注支持专注, 短休息和正计时三种模式, 计时状态跨页面和刷新持久保留.
 - 习惯提供近 30 天热力记录, 当前与最长连续天数, 周进度, 周期和目标次数设置.
-- 支持浅色, 深色和跟随系统主题, 以及专注和休息时长设置.
+- 支持浅色, 深色和跟随系统主题, 五种强调色, 舒适与紧凑界面密度, 以及专注和休息时长设置.
 - 标题, 备注与子任务搜索, 组合筛选和常用键盘快捷键.
 - 支持标准 ICS 日历导入和导出, 以及完整数据备份与恢复. 导入前执行严格结构校验并兼容 1.1, 1.2 和 1.3 备份.
 - Web 端和 macOS 端使用同一份本机 SQLite 数据, 数据不会上传到互联网.
 - 桌面和手机自适应界面.
 - 提供基于 Tauri 2 的 macOS 桌面客户端, 复用完整 Web 端界面和数据能力.
 - 桌面端支持原生系统通知, 窗口位置与尺寸恢复, macOS 原生菜单和透明标题栏.
-- 支持构建 Apple Silicon 和 Universal macOS `.app` 与 `.dmg` 安装包, 最低兼容 macOS 12.
+- 正式发布统一生成单一 Universal macOS `.dmg` 安装包, 同时兼容 Apple Silicon 和 Intel Mac, 最低兼容 macOS 12.
 
 ## 目录结构
 
@@ -103,8 +103,10 @@ pnpm test:coverage
 pnpm test:e2e
 pnpm build
 pnpm desktop:check
-pnpm desktop:build
-pnpm desktop:build:universal
+pnpm release:check
+pnpm release:macos
 ```
+
+`pnpm release:macos` 会先校验所有子项目版本号, 清理历史构建目录, 再将唯一正式安装包输出到 `release/`. Tauri 生成的 `.app` 仅作为 DMG 打包中间产物, 不作为独立发布入口.
 
 更多规范请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md).

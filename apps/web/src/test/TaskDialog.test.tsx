@@ -39,6 +39,7 @@ describe('任务编辑对话框', () => {
       />,
     );
 
+    expect(screen.getByText('2026年8月30日')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '创建任务' }));
     expect(screen.getByRole('alert')).toHaveTextContent('请输入任务标题.');
 

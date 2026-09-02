@@ -1,4 +1,5 @@
 import type { AppSettings, Category, Priority, Tag, Task, TaskDraft } from '@easydo/domain';
+import { taskProgress } from '@easydo/domain';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
@@ -16,10 +17,10 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useState } from 'react';
-import { taskProgress } from '@easydo/domain';
 
 import { fromDateKey } from '../lib/calendar';
 import { useAppDialog } from './AppDialog';
+import { LocalizedDateInput } from './LocalizedDateInput';
 
 type TaskListProps = {
   categories: Category[];
@@ -165,12 +166,7 @@ export function TaskList({
             <option value="medium">中</option>
             <option value="high">高</option>
           </select>
-          <input
-            aria-label="批量修改日期"
-            onChange={(event) => setBatchDate(event.target.value)}
-            type="date"
-            value={batchDate}
-          />
+          <LocalizedDateInput ariaLabel="批量修改日期" onChange={setBatchDate} value={batchDate} />
           <button
             disabled={!batchCategory && !batchDate && !batchPriority}
             onClick={async () => {

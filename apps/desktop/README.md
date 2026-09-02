@@ -20,14 +20,14 @@ cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-## 构建应用
+## 正式发布
 
 ```bash
-pnpm desktop:build
-pnpm desktop:build:universal
+pnpm release:check
+pnpm release:macos
 ```
 
-单架构产物位于 `apps/desktop/src-tauri/target/release/bundle/`. Universal 产物位于 `apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/`.
+发布脚本会校验根目录, Web, Desktop, Tauri 和 Rust 的版本号完全一致, 并在构建前后清理旧的 bundle 目录. 唯一正式产物位于 `release/EasyDo_<版本号>_macOS_universal.dmg`. Tauri 构建出的 `.app` 只是创建 DMG 所需的中间文件, 不再作为第二个用户产物保留.
 
 桌面端和网页端统一通过本机数据服务访问同一份 SQLite 数据库. 服务仅监听 `127.0.0.1:24873`, 不会将任务或日程上传到互联网. 所有写入使用事务和版本校验, 数据变化会实时通知其他已打开界面. 关闭主窗口后服务继续运行, 系统托盘可重新打开客户端或在浏览器中打开完整网页界面.
 

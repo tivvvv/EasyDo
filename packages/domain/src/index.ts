@@ -47,8 +47,11 @@ export type Subtask = {
 export type RecurrenceEditScope = 'all' | 'current' | 'future';
 
 export type CalendarDensity = 'comfortable' | 'compact';
+export type AccentColor = 'blue' | 'green' | 'orange' | 'rose' | 'violet';
+export type InterfaceDensity = 'comfortable' | 'compact';
 
 export type AppSettings = {
+  accentColor: AccentColor;
   agendaDays: 7 | 14 | 30;
   autoStartBreak: boolean;
   calendarDensity: CalendarDensity;
@@ -56,6 +59,7 @@ export type AppSettings = {
   defaultCalendarMode:
     'agenda' | 'day' | 'fiveDay' | 'month' | 'multiWeek' | 'threeDay' | 'week' | 'year';
   id: 'default';
+  interfaceDensity: InterfaceDensity;
   showWeekends: boolean;
   shortBreakMinutes: number;
   taskGrouping: 'category' | 'date' | 'none' | 'priority';
@@ -294,12 +298,14 @@ export const defaultFilterCriteria: FilterCriteria = {
 };
 
 export const defaultAppSettings: AppSettings = {
+  accentColor: 'violet',
   agendaDays: 14,
   autoStartBreak: false,
   calendarDensity: 'comfortable',
   dailyCapacityMinutes: 480,
   defaultCalendarMode: 'month',
   id: 'default',
+  interfaceDensity: 'comfortable',
   showWeekends: true,
   shortBreakMinutes: 5,
   taskGrouping: 'none',
@@ -807,6 +813,8 @@ function isSettingsRecord(value: unknown): value is AppSettings {
   const settings = value as Partial<AppSettings>;
   return (
     settings.id === 'default' &&
+    (settings.accentColor === undefined ||
+      ['blue', 'green', 'orange', 'rose', 'violet'].includes(settings.accentColor)) &&
     [7, 14, 30].includes(settings.agendaDays ?? 0) &&
     ['comfortable', 'compact'].includes(settings.calendarDensity ?? '') &&
     (settings.autoStartBreak === undefined || typeof settings.autoStartBreak === 'boolean') &&
@@ -826,6 +834,8 @@ function isSettingsRecord(value: unknown): value is AppSettings {
     Number(settings.pomodoroMinutes) > 0 &&
     (settings.focusRounds === undefined ||
       (Number.isInteger(settings.focusRounds) && Number(settings.focusRounds) > 0)) &&
+    (settings.interfaceDensity === undefined ||
+      ['comfortable', 'compact'].includes(settings.interfaceDensity)) &&
     (settings.matrixUrgentDays === undefined || [1, 3, 7].includes(settings.matrixUrgentDays)) &&
     (settings.whiteNoise === undefined ||
       ['brown', 'none', 'rain'].includes(settings.whiteNoise)) &&

@@ -12,8 +12,6 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:web": "pnpm --filter @easydo/web dev",
-    "desktop:build": "pnpm --filter @easydo/desktop build",
-    "desktop:build:universal": "pnpm --filter @easydo/desktop build:universal",
     "desktop:check": "pnpm --filter @easydo/desktop check",
     "desktop:dev": "pnpm --filter @easydo/desktop dev",
     "build": "pnpm --filter @easydo/web build",
@@ -21,6 +19,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "prepare": "node scripts/configure-git-hooks.mjs",
+    "release:check": "node scripts/release-macos.mjs --check",
+    "release:macos": "node scripts/release-macos.mjs",
     "test": "pnpm --filter @easydo/web test",
     "test:coverage": "pnpm --filter @easydo/web test:coverage",
     "test:e2e": "pnpm --filter @easydo/web test:e2e",

@@ -414,7 +414,7 @@ kbd {
   background: #999;
 }
 .list-dot.violet {
-  background: #635fd7;
+  background: var(--primary);
 }
 .list-dot.green {
   background: #43a17c;
@@ -699,8 +699,8 @@ kbd {
 }
 .day-cell.today .day-number {
   color: white;
-  background: #5d57d6;
-  box-shadow: 0 4px 10px rgba(93, 87, 214, 0.22);
+  background: var(--primary);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 .cell-tasks {
   display: grid;
@@ -811,7 +811,7 @@ kbd {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #5d57d6;
+  background: var(--primary);
 }
 .agenda-list {
   display: grid;
@@ -877,7 +877,7 @@ kbd {
 }
 .empty-agenda button {
   border: 0;
-  color: #5d57d6;
+  color: var(--primary);
   background: transparent;
   cursor: pointer;
   font-size: 12px;
@@ -891,8 +891,8 @@ kbd {
   margin-top: auto;
   border: 1px dashed #cfcfdf;
   border-radius: 10px;
-  color: #5d57d6;
-  background: #f8f8fd;
+  color: var(--primary);
+  background: var(--primary-soft);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -1152,7 +1152,7 @@ kbd {
 
 .time-calendar-header button.current strong {
   color: white;
-  background: #5d57d6;
+  background: var(--primary);
 }
 
 .all-day-row {
@@ -1630,7 +1630,7 @@ kbd {
 }
 
 .color-picker button[aria-pressed='true'] {
-  box-shadow: 0 0 0 2px #5d57d6;
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
 .list-view,
@@ -5334,5 +5334,534 @@ html[data-theme='dark'] kbd {
     padding: 0;
     justify-content: center;
     font-size: 0;
+  }
+}
+
+/* 高频操作区和个性化外观. */
+.topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.calendar-topbar {
+  row-gap: 13px;
+  margin-bottom: 17px;
+}
+
+.calendar-toolbar {
+  display: flex;
+  min-width: 0;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.calendar-view-controls,
+.calendar-navigation {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.calendar-view-controls {
+  gap: 6px;
+}
+
+.calendar-navigation {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.calendar-navigation .icon-button,
+.calendar-navigation .today-button,
+.calendar-navigation .date-jump {
+  height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.calendar-navigation .date-jump {
+  position: relative;
+  width: auto;
+  min-width: 148px;
+  justify-content: center;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.date-jump input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.localized-date-input {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  height: 40px;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--surface-soft);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.localized-date-input > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.localized-date-input > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.localized-date-input > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.localized-date-input:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.localized-date-input.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.localized-date-input.disabled > input {
+  cursor: not-allowed;
+}
+
+.quick-edit-panel .localized-date-input,
+.batch-toolbar .localized-date-input {
+  background: var(--surface-strong);
+}
+
+.quick-edit-panel .localized-date-input {
+  width: 50%;
+}
+
+.batch-toolbar .localized-date-input {
+  max-width: 150px;
+}
+
+.calendar-view-menu {
+  position: relative;
+}
+
+.calendar-view-menu > summary {
+  display: flex;
+  min-width: 72px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.calendar-view-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.calendar-view-menu > summary.active {
+  color: var(--primary-hover);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  background: var(--primary-soft);
+}
+
+.calendar-view-menu[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.calendar-view-menu > div {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  width: 142px;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.calendar-view-menu > div button {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.calendar-view-menu > div button:hover,
+.calendar-view-menu > div button[aria-current='page'] {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
+.filter-count {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 9px;
+  color: white;
+  background: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.task-dialog .dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-footer-start,
+.dialog-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-footer-start:empty {
+  display: none;
+}
+
+.dialog-footer-start:empty + .dialog-footer-actions {
+  margin-left: auto;
+}
+
+.appearance-settings-row {
+  align-items: flex-start;
+}
+
+.appearance-controls {
+  display: grid;
+  width: min(560px, 100%);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.appearance-control {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.appearance-control > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.setting-segmented {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-strong);
+}
+
+.setting-segmented button {
+  height: 31px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.setting-segmented button.active {
+  color: var(--primary-hover);
+  background: var(--surface);
+  box-shadow: 0 1px 5px rgb(28 31 42 / 9%);
+}
+
+.accent-choices {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.accent-choices button {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  outline: 1px solid transparent;
+}
+
+.accent-choices button.active {
+  outline-color: currentColor;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.accent-choices .accent-violet {
+  background: #665ee3;
+}
+.accent-choices .accent-blue {
+  background: #3977d8;
+}
+.accent-choices .accent-green {
+  background: #23866f;
+}
+.accent-choices .accent-orange {
+  background: #d56f2d;
+}
+.accent-choices .accent-rose {
+  background: #cc5575;
+}
+
+html[data-accent='blue'] {
+  --primary: #3977d8;
+  --primary-hover: #2f65c1;
+  --primary-soft: #edf4ff;
+}
+html[data-accent='green'] {
+  --primary: #23866f;
+  --primary-hover: #1d725f;
+  --primary-soft: #eaf8f3;
+}
+html[data-accent='orange'] {
+  --primary: #d56f2d;
+  --primary-hover: #ba5b20;
+  --primary-soft: #fff2e9;
+}
+html[data-accent='rose'] {
+  --primary: #cc5575;
+  --primary-hover: #b44462;
+  --primary-soft: #fff0f4;
+}
+html[data-accent='violet'] {
+  --primary: #665ee3;
+  --primary-hover: #574fd3;
+  --primary-soft: #efeffd;
+}
+
+html[data-theme='dark'][data-accent='blue'] {
+  --primary: #78aaf8;
+  --primary-hover: #9bc0ff;
+  --primary-soft: #23344f;
+}
+html[data-theme='dark'][data-accent='green'] {
+  --primary: #68c9ad;
+  --primary-hover: #83dbc1;
+  --primary-soft: #213d37;
+}
+html[data-theme='dark'][data-accent='orange'] {
+  --primary: #f2a36f;
+  --primary-hover: #ffba8c;
+  --primary-soft: #493225;
+}
+html[data-theme='dark'][data-accent='rose'] {
+  --primary: #ef8ca8;
+  --primary-hover: #ffa5bd;
+  --primary-soft: #492a35;
+}
+html[data-theme='dark'][data-accent='violet'] {
+  --primary: #918af4;
+  --primary-hover: #a49eff;
+  --primary-soft: #302e52;
+}
+
+@media (min-width: 781px) {
+  html[data-density='compact'] .workspace {
+    padding: 20px 24px 40px;
+  }
+  html[data-density='compact'] .nav-item {
+    height: 36px;
+  }
+  html[data-density='compact'] .topbar {
+    min-height: 54px;
+    margin-bottom: 14px;
+  }
+  html[data-density='compact'] .calendar-overview {
+    min-height: 48px;
+  }
+  html[data-density='compact'] .quick-capture {
+    min-height: 44px;
+    margin-bottom: 12px;
+  }
+  html[data-density='compact'] .task-row {
+    min-height: 50px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .appearance-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 780px) {
+  .topbar,
+  .calendar-topbar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 13px;
+    margin-bottom: 16px;
+  }
+  .topbar-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 40px auto 1fr;
+    gap: 7px;
+    margin-top: 0;
+  }
+  .topbar-actions .search-box {
+    display: flex;
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+  .topbar-actions .command-trigger {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .topbar-actions .command-trigger span,
+  .topbar-actions .command-trigger kbd {
+    display: none;
+  }
+  .topbar-actions .filter-toggle {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .calendar-toolbar {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 8px;
+  }
+  .calendar-view-controls {
+    grid-column: 1 / -1;
+  }
+  .calendar-view-controls .view-switcher {
+    min-width: 0;
+    flex: 1;
+  }
+  .calendar-view-controls .view-switcher button {
+    min-width: 0;
+    flex: 1;
+    padding: 0 8px;
+  }
+  .calendar-view-menu > summary {
+    min-width: 66px;
+  }
+  .calendar-navigation {
+    min-width: 0;
+  }
+  .calendar-navigation .date-jump {
+    min-width: 0;
+    flex: 1;
+    padding: 0 8px;
+  }
+  .calendar-navigation .date-jump span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .calendar-navigation .today-button {
+    padding: 0 10px;
+  }
+  .calendar-toolbar .plan-day-button {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .calendar-toolbar .plan-day-button span {
+    display: none;
+  }
+  .calendar-overview {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .calendar-overview > span,
+  .calendar-overview > button {
+    min-width: 0;
+    justify-content: center;
+    padding: 0 5px;
+  }
+  .calendar-legend {
+    width: auto;
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+  .appearance-controls {
+    width: 100%;
+  }
+  .task-dialog .dialog-footer {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .dialog-footer-actions {
+    justify-content: flex-end;
+  }
+  .dialog-footer-actions .secondary-button:first-child {
+    width: 40px;
+    padding: 0;
+    font-size: 0;
+  }
+  .dialog-footer-start:empty + .dialog-footer-actions {
+    grid-column: 1 / -1;
   }
 }

@@ -2,6 +2,8 @@ import type { Category, Priority, Task, TaskDraft } from '@easydo/domain';
 import { ExternalLink, FastForward, Save, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { LocalizedDateInput } from './LocalizedDateInput';
+
 type QuickEditPanelProps = {
   categories: Category[];
   onClose: () => void;
@@ -47,12 +49,7 @@ export function QuickEditPanel({
           value={title}
         />
         <div>
-          <input
-            aria-label="快速编辑日期"
-            onChange={(event) => setDueDate(event.target.value)}
-            type="date"
-            value={dueDate}
-          />
+          <LocalizedDateInput ariaLabel="快速编辑日期" onChange={setDueDate} value={dueDate} />
           <input
             aria-label="快速编辑时间"
             disabled={!dueDate}
