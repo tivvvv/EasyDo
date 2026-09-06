@@ -1,10 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
 import { dataServiceOrigin, workspaceApi } from './environment';
-
-const clientHeaders = { 'X-EasyDo-Client': '1' };
+import { resetWorkspace } from './workspace';
 
 async function chooseExtendedCalendarMode(page: Page, label: string): Promise<void> {
   await page.locator('.calendar-view-menu > summary').click();
@@ -12,16 +11,40 @@ async function chooseExtendedCalendarMode(page: Page, label: string): Promise<vo
 }
 
 test.beforeEach(async ({ request }) => {
-  const current = await request.get(workspaceApi, { headers: clientHeaders });
-  const revision =
-    current.status() === 204
-      ? 0
-      : Number(((await current.json()) as { revision: number }).revision);
-  const response = await request.put(workspaceApi, {
-    data: { baseRevision: revision, payload: createInitialWorkspace() },
-    headers: clientHeaders,
-  });
-  expect(response.ok()).toBe(true);
+  await resetWorkspace(request, createInitialWorkspace());
+});
+
+test('测试工作区重置遇到并发写入时重新读取版本', async ({ request, isMobile }) => {
+  test.skip(isMobile, '服务端并发行为不依赖视口.');
+  let conflictPending = true;
+  const statuses: number[] = [];
+  const concurrentRequest: Pick<APIRequestContext, 'get' | 'put'> = {
+    get: async (url, options) => {
+      const current = await request.get(url, options);
+      if (conflictPending) {
+        conflictPending = false;
+        const competingWrite = await request.put(workspaceApi, {
+          data: {
+            baseRevision: (await current.json()).revision,
+            payload: createInitialWorkspace(),
+          },
+          headers: { 'X-EasyDo-Client': '1' },
+        });
+        expect(competingWrite.status()).toBe(200);
+      }
+      return current;
+    },
+    put: async (url, options) => {
+      const response = await request.put(url, options);
+      statuses.push(response.status());
+      return response;
+    },
+  };
+  const payload = createInitialWorkspace();
+  payload.tasks[0]!.title = '并发冲突后的独立测试数据';
+  await resetWorkspace(concurrentRequest, payload);
+  expect(statuses).toEqual([409, 200]);
+  expect((await (await request.get(workspaceApi)).json()).payload).toEqual(payload);
 });
 
 test('网页端和客户端视图实时共享同一份任务数据', async ({ browser, page, isMobile }) => {
@@ -97,7 +120,7 @@ test('使用任务行菜单编辑和复制任务', async ({ page, isMobile }) =>
   await expect(page.getByRole('dialog', { name: /编辑任务/ })).toBeVisible();
 });
 
-test('切换日历视图并创建分类和标签', async ({ page, isMobile }) => {
+test('切换日历视图并创建分类和标签', async ({ page, request, isMobile }) => {
   await page.goto('/');
   if (isMobile) {
     await page.getByRole('button', { name: '打开导航' }).click();
@@ -117,6 +140,12 @@ test('切换日历视图并创建分类和标签', async ({ page, isMobile }) =>
   await expect(page.locator('.time-calendar.day')).toBeVisible();
   await page.getByRole('button', { name: '日程', exact: true }).click();
   await expect(page.locator('.agenda-calendar')).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(workspaceApi)).json()).payload.settings.defaultCalendarMode,
+    )
+    .toBe('agenda');
 });
 
 test('管理重复任务, 子任务和回收站', async ({ page, isMobile }) => {

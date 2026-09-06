@@ -4,9 +4,8 @@ import { basename, dirname, join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
-import { workspaceApi } from './environment';
+import { resetWorkspace } from './workspace';
 
-const clientHeaders = { 'X-EasyDo-Client': '1' };
 const fixedNow = new Date('2026-09-03T09:00:00+08:00');
 const fontStylesheet = createRequire(import.meta.url).resolve('@fontsource-variable/noto-sans-sc');
 const fontCss = readFileSync(fontStylesheet, 'utf8').replaceAll('./files/', '/__visual-fonts/');
@@ -24,16 +23,7 @@ test.beforeEach(async ({ page, request }) => {
     });
   });
   await page.clock.setFixedTime(fixedNow);
-  const current = await request.get(workspaceApi, { headers: clientHeaders });
-  const revision =
-    current.status() === 204
-      ? 0
-      : Number(((await current.json()) as { revision: number }).revision);
-  const response = await request.put(workspaceApi, {
-    data: { baseRevision: revision, payload: createInitialWorkspace(fixedNow) },
-    headers: clientHeaders,
-  });
-  expect(response.ok()).toBe(true);
+  await resetWorkspace(request, createInitialWorkspace(fixedNow));
   await page.addInitScript(() => {
     localStorage.setItem('easydo-visual-test', 'true');
   });
