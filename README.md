@@ -184,6 +184,8 @@ pnpm release:check
 
 端到端测试独占本机 `5174` 网页端口和 `24874` 数据端口, 数据仅写入 `apps/desktop/src-tauri/target/e2e/easydo.db`. 测试不会复用已运行的客户端或开发服务, 测试端口被占用时直接退出. 正常开发和客户端继续使用 `24873` 数据端口.
 
+视觉回归使用锁定版本的 Noto Sans SC 字体, 固定中文区域和上海时区, 等待字体加载完成后截图. 字体仅注入测试页面, 基线更新使用 `pnpm --filter @easydo/web exec playwright test e2e/visual.spec.ts --update-snapshots=all`. CI 会在检查摘要中展示具体失败原因, 并保留视觉差异截图和追踪记录 7 天. Linux CI 在启动端到端测试前独立编译数据服务, 避免首次编译耗尽服务启动时限.
+
 ## 构建 macOS 安装包
 
 ```bash

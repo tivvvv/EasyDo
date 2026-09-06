@@ -31,6 +31,8 @@ jobs:
       - run: pnpm release:check
       - run: pnpm test:coverage
       - run: pnpm build
+      - name: 编译端到端测试数据服务
+        run: cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --features data-service-bin --bin easydo-data-service
       - run: pnpm --filter @easydo/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
 
@@ -53,7 +55,7 @@ jobs:
       - run: pnpm --filter @easydo/web exec playwright test e2e/visual.spec.ts
       - name: 保存视觉回归失败现场
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-visual-failure
           path: apps/web/test-results/

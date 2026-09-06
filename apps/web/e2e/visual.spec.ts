@@ -1,14 +1,28 @@
-import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { basename, dirname, join } from 'node:path';
+import { expect, test, type Page } from '@playwright/test';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
 import { workspaceApi } from './environment';
 
 const clientHeaders = { 'X-EasyDo-Client': '1' };
 const fixedNow = new Date('2026-09-03T09:00:00+08:00');
+const fontStylesheet = createRequire(import.meta.url).resolve('@fontsource-variable/noto-sans-sc');
+const fontCss = readFileSync(fontStylesheet, 'utf8').replaceAll('./files/', '/__visual-fonts/');
 
-test.skip(process.platform !== 'darwin', '视觉基线使用 macOS 系统字体和渲染引擎.');
+test.skip(process.platform !== 'darwin', '视觉基线使用 macOS 渲染引擎.');
+test.use({ locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
 
 test.beforeEach(async ({ page, request }) => {
+  // 字体随测试依赖锁定, 避免不同 macOS 版本的中文系统字体造成误报.
+  await page.route('**/__visual-fonts/*.woff2', async (route) => {
+    const file = basename(new URL(route.request().url()).pathname);
+    await route.fulfill({
+      body: readFileSync(join(dirname(fontStylesheet), 'files', file)),
+      contentType: 'font/woff2',
+    });
+  });
   await page.clock.setFixedTime(fixedNow);
   const current = await request.get(workspaceApi, { headers: clientHeaders });
   const revision =
@@ -26,7 +40,7 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test('日历主页视觉基线', async ({ page }) => {
-  await page.goto('/');
+  await openVisualPage(page);
   await expect(page.getByLabel('搜索任务')).toBeVisible();
   await expect(page).toHaveScreenshot('calendar-home.png', {
     animations: 'disabled',
@@ -36,7 +50,7 @@ test('日历主页视觉基线', async ({ page }) => {
 });
 
 test('深色任务详情视觉基线', async ({ page, isMobile }) => {
-  await page.goto('/');
+  await openVisualPage(page);
   if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
   await page.getByRole('button', { name: '设置与数据' }).click();
   await page.getByRole('button', { name: '深色', exact: true }).click();
@@ -54,7 +68,7 @@ test('深色任务详情视觉基线', async ({ page, isMobile }) => {
 
 test('核心工作区视觉基线', async ({ page, isMobile }) => {
   test.skip(isMobile, '移动端关键页面已经由独立视觉基线覆盖.');
-  await page.goto('/');
+  await openVisualPage(page);
 
   await page.getByRole('button', { name: /全部任务/ }).click();
   await expect(page).toHaveScreenshot('task-list.png', visualOptions);
@@ -76,7 +90,7 @@ test('核心工作区视觉基线', async ({ page, isMobile }) => {
 
 test('效率工作台视觉基线', async ({ page, isMobile }) => {
   test.skip(isMobile, '移动端效率工作台由交互测试覆盖.');
-  await page.goto('/');
+  await openVisualPage(page);
   await page.getByRole('button', { name: '效率工作台' }).click();
   await expect(page.getByRole('heading', { name: '任务看板' })).toBeVisible();
   await expect(page.getByRole('status')).toBeHidden();
@@ -99,3 +113,11 @@ const visualOptions = {
   caret: 'hide' as const,
   maxDiffPixelRatio: 0.01,
 };
+
+async function openVisualPage(page: Page) {
+  await page.goto('/');
+  await page.addStyleTag({
+    content: `${fontCss}\n:root { font-family: 'Noto Sans SC Variable', sans-serif; }`,
+  });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+}
