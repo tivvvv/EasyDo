@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
+import { dataServiceOrigin, workspaceApi } from './environment';
 
-const workspaceApi = 'http://127.0.0.1:24873/api/v1/workspace';
 const clientHeaders = { 'X-EasyDo-Client': '1' };
 
 async function chooseExtendedCalendarMode(page: Page, label: string): Promise<void> {
@@ -28,7 +28,7 @@ test('网页端和客户端视图实时共享同一份任务数据', async ({ br
   test.skip(isMobile, '双窗口共享数据流程只需在桌面浏览器执行一次.');
   const browserContext = await browser.newContext();
   const browserPage = await browserContext.newPage();
-  await Promise.all([page.goto('/'), browserPage.goto('http://127.0.0.1:24873')]);
+  await Promise.all([page.goto('/'), browserPage.goto(dataServiceOrigin)]);
 
   await page
     .getByRole('button', { name: /添加任务/ })
@@ -242,9 +242,9 @@ test('保存日历显示偏好和查看操作记录', async ({ page, isMobile })
   await page.getByLabel('日程范围').selectOption('7');
   await page.getByLabel('显示周末').click();
   await expect(page.getByLabel('显示周末')).not.toBeChecked();
-  await expect(page.getByText('日历偏好已保存.')).toBeVisible();
+  await expect(page.getByText('设置已保存.')).toBeVisible();
   await page.getByRole('button', { name: '操作记录' }).click();
-  await expect(page.getByRole('heading', { level: 2, name: '操作记录' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '操作记录' })).toBeVisible();
 });
 
 test('自然语言快速添加, 多日历和任务分组', async ({ page, isMobile }) => {
@@ -435,4 +435,120 @@ test('核心页面没有严重可访问性问题', async ({ page, isMobile }) =>
     .withTags(['wcag2a', 'wcag2aa'])
     .analyze();
   expect(results.violations.filter((item) => item.impact === 'critical')).toEqual([]);
+});
+
+test('管理页面不显示无关的任务添加, 搜索或筛选操作', async ({ page, isMobile }) => {
+  await page.goto('/');
+  for (const name of ['回收站', '操作记录', '设置与数据', '效率工作台']) {
+    if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+    await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+    await expect(page.getByLabel('快速添加任务', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.quick-add')).toHaveCount(0);
+    await expect(page.getByLabel('搜索任务', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.filter-toggle')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(1);
+    await page.keyboard.press('n');
+    await expect(page.locator('.task-dialog')).toHaveCount(0);
+  }
+});
+
+test('操作记录支持确认清空, 清空后任务仍保留且无法再撤销旧记录', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  await page.goto('/');
+  await page.getByLabel('快速添加任务').fill('清空记录后保留的任务');
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await expect(page.getByText('任务已快速添加.')).toBeVisible();
+  const original = (await (await request.get(workspaceApi)).json()).payload;
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: '操作记录', exact: true }).click();
+  await page.getByRole('button', { name: '清空记录', exact: true }).click();
+  await page.locator('.app-dialog').getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.locator('.activity-list article')).toHaveCount(original.activities.length);
+  await page.getByRole('button', { name: '清空记录', exact: true }).click();
+  await page.locator('.app-dialog').getByRole('button', { name: '清空记录', exact: true }).click();
+  await expect(page.getByText('还没有操作记录')).toBeVisible();
+  await expect(page.getByRole('button', { name: '撤销最近操作' })).toHaveCount(0);
+  const saved = (await (await request.get(workspaceApi)).json()).payload;
+  expect(saved.activities).toEqual([]);
+  expect(saved.tasks).toEqual(original.tasks);
+  await page.reload();
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: '操作记录', exact: true }).click();
+  await expect(page.getByText('还没有操作记录')).toBeVisible();
+});
+
+test('分类支持拖入文件夹, 组内排序和移回未分组, 刷新后仍保留', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  test.skip(isMobile, '触屏通过分类编辑器调整分组和顺序, 鼠标拖动由桌面验证.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '新建文件夹', exact: true }).click();
+  await page.getByLabel('文件夹名称').fill('拖动测试文件夹');
+  await page.locator('.app-dialog').getByRole('button', { name: '保存', exact: true }).click();
+  const category = (name: string) =>
+    page.locator('.category-nav-row').filter({ has: page.getByText(name, { exact: true }) });
+  const folder = page.locator('.folder-nav-group');
+  await category('工作').dragTo(folder.locator('.collection-nav-row').first());
+  await expect(folder.locator('.category-nav-row')).toHaveCount(1);
+  await category('个人').dragTo(folder.locator('.collection-nav-row').first());
+  await expect(folder.locator('.category-nav-row')).toHaveCount(2);
+  await category('个人').dragTo(category('工作'), { targetPosition: { x: 30, y: 2 } });
+  await expect(folder.locator('.category-nav-row').first()).toContainText('个人');
+  await category('工作').dragTo(page.locator('.category-group-label'));
+  await expect(folder.locator('.category-nav-row')).toHaveCount(1);
+  await category('学习').dragTo(category('工作'), { targetPosition: { x: 30, y: 2 } });
+  await expect(page.locator('.ungrouped-categories .category-nav-row').first()).toContainText(
+    '学习',
+  );
+  const saved = (await (await request.get(workspaceApi)).json()).payload;
+  expect(
+    saved.categories.find((item: { name: string }) => item.name === '工作').folderId,
+  ).toBeNull();
+  expect(saved.categories.find((item: { name: string }) => item.name === '个人').folderId).toBe(
+    saved.folders[0].id,
+  );
+  await page.reload();
+  await expect(folder.locator('.category-nav-row')).toHaveCount(1);
+  await expect(page.locator('.ungrouped-categories .category-nav-row').first()).toContainText(
+    '学习',
+  );
+});
+
+test('所有强调色与界面密度保存成功, 独立窗口和刷新保持一致', async ({
+  page,
+  context,
+  request,
+  isMobile,
+}) => {
+  await page.goto('/');
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await page.getByRole('button', { name: '设置与数据', exact: true }).click();
+  const peer = await context.newPage();
+  await peer.goto(dataServiceOrigin);
+  for (const [color, label] of [
+    ['blue', '海蓝'],
+    ['green', '青绿'],
+    ['orange', '暖橙'],
+    ['rose', '玫红'],
+    ['violet', '紫罗兰'],
+  ]) {
+    await page.getByRole('button', { name: `使用${label}强调色`, exact: true }).click();
+    await expect(page.getByText('设置已保存.', { exact: true })).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-accent', color!);
+    await expect(peer.locator('html')).toHaveAttribute('data-accent', color!);
+    expect((await (await request.get(workspaceApi)).json()).payload.settings.accentColor).toBe(
+      color,
+    );
+  }
+  await page.getByRole('button', { name: '紧凑', exact: true }).click();
+  await expect(peer.locator('html')).toHaveAttribute('data-density', 'compact');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await expect(page.getByText(/操作失败|设置保存失败/)).toHaveCount(0);
+  await peer.close();
 });

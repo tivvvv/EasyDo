@@ -2,6 +2,8 @@ import { getScheduledReminderEvents } from '@easydo/application';
 import type { Habit, Task } from '@easydo/domain';
 import { addDays, format } from 'date-fns';
 
+import { getErrorMessage } from './errors';
+
 export type ReminderPermission = NotificationPermission | 'unsupported';
 
 export function isTauriRuntime(): boolean {
@@ -35,8 +37,10 @@ export async function sendLocalReminder(options: {
   title: string;
 }): Promise<void> {
   if (isTauriRuntime()) {
-    const { sendNotification } = await import('@tauri-apps/plugin-notification');
-    sendNotification({ body: options.body, title: options.title });
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('plugin:notification|notify', {
+      options: { body: options.body, title: options.title },
+    });
     return;
   }
   new Notification(options.title, {
@@ -46,16 +50,34 @@ export async function sendLocalReminder(options: {
   });
 }
 
+let nativeSchedulingUnsupported = false;
+
+async function pendingNativeNotifications() {
+  if (nativeSchedulingUnsupported) return null;
+  const { pending } = await import('@tauri-apps/plugin-notification');
+  try {
+    return await pending();
+  } catch (error) {
+    // 桌面插件未实现调度接口时使用运行期提醒, 不能将其误报成设置保存失败.
+    if (/get_pending.*not found|not supported|unsupported/i.test(getErrorMessage(error))) {
+      nativeSchedulingUnsupported = true;
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function syncScheduledTaskReminders(
   tasks: readonly Task[],
   onScheduled?: (keys: string[]) => Promise<void>,
 ): Promise<number> {
   if (!isTauriRuntime()) return 0;
-  const { cancel, isPermissionGranted, pending, Schedule, sendNotification } =
+  const { cancel, isPermissionGranted, Schedule, sendNotification } =
     await import('@tauri-apps/plugin-notification');
   if (!(await isPermissionGranted())) return 0;
 
-  const existing = await pending();
+  const existing = await pendingNativeNotifications();
+  if (existing === null) return 0;
   const taskNotificationIds = existing
     .map((notification) => notification.id)
     .filter((id) => id > 0 && id < 1_000_000_000);
@@ -93,10 +115,11 @@ function stableNotificationId(value: string): number {
 
 export async function syncScheduledHabitReminders(habits: readonly Habit[]): Promise<number> {
   if (!isTauriRuntime()) return 0;
-  const { cancel, isPermissionGranted, pending, Schedule, sendNotification } =
+  const { cancel, isPermissionGranted, Schedule, sendNotification } =
     await import('@tauri-apps/plugin-notification');
   if (!(await isPermissionGranted())) return 0;
-  const existing = await pending();
+  const existing = await pendingNativeNotifications();
+  if (existing === null) return 0;
   const habitIds = existing
     .map((notification) => notification.id)
     .filter((id) => id >= 1_000_000_000 && id < 2_000_000_000);
@@ -133,4 +156,35 @@ export async function syncScheduledHabitReminders(habits: readonly Habit[]): Pro
     }
   }
   return count;
+}
+
+export function getPendingHabitReminders(
+  habits: readonly Habit[],
+  now: Date,
+  notifiedKeys: ReadonlySet<string>,
+): { key: string; title: string; body: string }[] {
+  return habits.flatMap((habit) => {
+    if (!habit.reminderTime || habit.pausedAt || habit.archivedAt) return [];
+    const [hours = 0, minutes = 0] = habit.reminderTime.split(':').map(Number);
+    for (const offset of [0, -1]) {
+      const scheduledAt = addDays(now, offset);
+      scheduledAt.setHours(hours, minutes, 0, 0);
+      const date = format(scheduledAt, 'yyyy-MM-dd');
+      const key = `habit:${habit.id}:${date}:${habit.reminderTime}`;
+      const elapsed = now.getTime() - scheduledAt.getTime();
+      if (
+        elapsed < 0 ||
+        elapsed >= 86_400_000 ||
+        notifiedKeys.has(key) ||
+        habit.logs.includes(date) ||
+        (habit.skippedDates ?? []).includes(date) ||
+        (habit.frequency !== 'daily' &&
+          habit.weekDays.length > 0 &&
+          !habit.weekDays.includes(scheduledAt.getDay()))
+      )
+        continue;
+      return [{ key, title: habit.name, body: '今天的小步积累, 现在开始正合适.' }];
+    }
+    return [];
+  });
 }

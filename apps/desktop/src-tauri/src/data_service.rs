@@ -88,8 +88,8 @@ struct ConflictResponse {
 }
 
 pub fn start(database_path: PathBuf) -> Result<(), String> {
+    let listener = bind_listener(DATA_SERVICE_PORT)?;
     initialize_database(&database_path).map_err(|error| error.to_string())?;
-    let listener = bind_listener()?;
     std::thread::Builder::new()
         .name("easydo-data-service".to_string())
         .spawn(move || {
@@ -99,13 +99,14 @@ pub fn start(database_path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run_blocking(database_path: PathBuf) -> Result<(), String> {
+pub fn run_blocking(database_path: PathBuf, port: u16) -> Result<(), String> {
+    let listener = bind_listener(port)?;
     initialize_database(&database_path).map_err(|error| error.to_string())?;
-    run_with_listener(database_path, bind_listener()?)
+    run_with_listener(database_path, listener)
 }
 
-fn bind_listener() -> Result<std::net::TcpListener, String> {
-    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, DATA_SERVICE_PORT));
+fn bind_listener(port: u16) -> Result<std::net::TcpListener, String> {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let listener = std::net::TcpListener::bind(address)
         .map_err(|error| format!("EasyDo 本地数据端口不可用: {error}"))?;
     listener
@@ -543,6 +544,16 @@ mod tests {
             "settings": {"id": "default"}, "tags": [], "tasks": [{"id": "task-1", "title": title}],
             "templates": [], "version": 5
         })
+    }
+
+    #[test]
+    fn occupied_port_does_not_initialize_database() {
+        let listener = bind_listener(0).unwrap();
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("easydo.db");
+
+        assert!(run_blocking(path.clone(), listener.local_addr().unwrap().port()).is_err());
+        assert!(!path.exists());
     }
 
     #[test]

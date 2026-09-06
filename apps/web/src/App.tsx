@@ -3,7 +3,6 @@ import type {
   AppSettings,
   Category,
   FilterCriteria,
-  Folder,
   Priority,
   RecurrenceEditScope,
   Tag,
@@ -15,13 +14,13 @@ import { defaultFilterCriteria, matchesTaskSearch, sortTasks } from '@easydo/dom
 import { exportTasksToIcs, matchesFilter, parseBackup, parseIcs } from '@easydo/application';
 import { format, isSameDay, startOfDay } from 'date-fns';
 import {
+  AlertTriangle,
   CalendarDays,
   Check,
   CirclePlus,
   Command,
   Download,
   Edit3,
-  Folder as FolderIcon,
   FolderPlus,
   Gauge,
   History,
@@ -48,6 +47,8 @@ import {
   addSection,
   addTag,
   addTemplate,
+  clearActivityHistory,
+  moveCategory,
   deleteCategory,
   deleteCountdown,
   deleteFolder,
@@ -60,7 +61,6 @@ import {
   exportBackup,
   purgeCompletedTasks,
   replaceFromBackup,
-  reorderCategories,
   reorderTasks,
   updateCategory,
   updateFolder,
@@ -76,6 +76,8 @@ import { taskService } from './application';
 import { useAppDialog } from './components/AppDialog';
 import { CalendarView, type CalendarMode } from './components/CalendarView';
 import { CalendarToolbar } from './components/CalendarToolbar';
+import { CategoryNavigation } from './components/CategoryNavigation';
+import { getErrorMessage } from './lib/errors';
 import { CollectionDialog } from './components/CollectionDialog';
 import { CommandPalette, type CommandAction } from './components/CommandPalette';
 import { DailyPlanner } from './components/DailyPlanner';
@@ -91,6 +93,7 @@ import { getSharedPersistenceStatus, type SharedPersistenceStatus } from './lib/
 import { isTauriRuntime } from './lib/notifications';
 import {
   getCalendarTitle,
+  isTaskView,
   getViewTasks,
   getViewTitle,
   type WorkspaceView,
@@ -136,7 +139,9 @@ export function App() {
     kind: 'category' | 'tag';
   } | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
+  const [toast, setToast] = useState<{ message: string; undo: boolean; error: boolean } | null>(
+    null,
+  );
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -182,7 +187,7 @@ export function App() {
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault();
         setCommandPaletteOpen((open) => !open);
-      } else if (!typing && event.key.toLowerCase() === 'n') {
+      } else if (!typing && isTaskView(view) && event.key.toLowerCase() === 'n') {
         event.preventDefault();
         openNewTask(
           view.kind === 'calendar' || view.kind === 'today' ? toDateKey(selectedDate) : null,
@@ -203,9 +208,9 @@ export function App() {
     };
   });
 
-  const showToast = (message: string, undo = false) => {
+  const showToast = (message: string, undo = false, error = false) => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
-    setToast({ message, undo });
+    setToast({ message, undo, error });
     toastTimerRef.current = window.setTimeout(
       () => {
         setToast(null);
@@ -235,12 +240,16 @@ export function App() {
 
   useEffect(() => {
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const message =
-        event.reason instanceof Error ? event.reason.message : '操作未能完成, 请稍后重试.';
-      showToast(`操作失败: ${message}`);
+      showToast(`操作失败: ${getErrorMessage(event.reason)}`, false, true);
     };
+    const handleReminderError = (event: Event) =>
+      showToast(`提醒暂时不可用: ${(event as CustomEvent<string>).detail}`, false, true);
     window.addEventListener('unhandledrejection', handleRejection);
-    return () => window.removeEventListener('unhandledrejection', handleRejection);
+    window.addEventListener('easydo:reminder-error', handleReminderError);
+    return () => {
+      window.removeEventListener('unhandledrejection', handleRejection);
+      window.removeEventListener('easydo:reminder-error', handleReminderError);
+    };
   });
 
   if (!data) {
@@ -276,6 +285,7 @@ export function App() {
     tasks,
     templates,
   } = data;
+  const taskView = isTaskView(view);
   const activeCalendarMode = calendarMode ?? settings.defaultCalendarMode;
   const activeTasks = tasks.filter((task) => !task.deletedAt);
   const trashedTasks = tasks.filter((task) => task.deletedAt);
@@ -435,14 +445,16 @@ export function App() {
               <X size={18} />
             </button>
           </div>
-          <button
-            className="quick-add"
-            onClick={() => openNewTask(view.kind === 'calendar' ? toDateKey(selectedDate) : null)}
-            type="button"
-          >
-            <CirclePlus size={18} />
-            添加任务<kbd>N</kbd>
-          </button>
+          {taskView && (
+            <button
+              className="quick-add"
+              onClick={() => openNewTask(view.kind === 'calendar' ? toDateKey(selectedDate) : null)}
+              type="button"
+            >
+              <CirclePlus size={18} />
+              添加任务<kbd>N</kbd>
+            </button>
+          )}
         </div>
         <nav className="nav-group" aria-label="主要视图">
           <NavButton
@@ -500,56 +512,42 @@ export function App() {
           >
             <FolderPlus size={14} /> 新建文件夹
           </button>
-          {folders.map((folder) => (
-            <FolderNavGroup
-              active={view.kind === 'folder' && view.id === folder.id}
-              categories={categories.filter((category) => category.folderId === folder.id)}
-              folder={folder}
-              key={folder.id}
-              onChooseCategory={(id) => chooseView({ id, kind: 'category' })}
-              onChooseFolder={() => chooseView({ id: folder.id, kind: 'folder' })}
-              onManageCategory={(category) =>
-                setCollectionDialog({ initial: category, kind: 'category' })
-              }
-              onManage={async () => {
-                const name = await dialog.prompt({
-                  initialValue: folder.name,
-                  label: '文件夹名称',
-                  required: false,
-                  title: '管理文件夹',
-                });
-                if (name === null) return;
-                if (name.trim()) await updateFolder(folder.id, name.trim());
-                else if (
-                  await dialog.confirm({
-                    confirmText: '删除文件夹',
-                    danger: true,
-                    description: '文件夹中的分类会保留.',
-                    title: `确定删除文件夹 "${folder.name}" 吗?`,
-                  })
-                )
-                  await deleteFolder(folder.id);
-              }}
-              tasks={activeTasks}
-              view={view}
-            />
-          ))}
-          {categories
-            .filter((category) => !category.folderId)
-            .map((category) => (
-              <CollectionNavRow
-                active={view.kind === 'category' && view.id === category.id}
-                count={
-                  activeTasks.filter((task) => task.categoryId === category.id && !task.completedAt)
-                    .length
-                }
-                icon={<span className="list-dot" style={{ background: category.color }} />}
-                key={category.id}
-                label={category.name}
-                onClick={() => chooseView({ id: category.id, kind: 'category' })}
-                onManage={() => setCollectionDialog({ initial: category, kind: 'category' })}
-              />
-            ))}
+          <CategoryNavigation
+            activeCategoryId={view.kind === 'category' ? view.id : null}
+            activeFolderId={view.kind === 'folder' ? view.id : null}
+            categories={categories}
+            folders={folders}
+            tasks={activeTasks}
+            onChooseCategory={(id) => chooseView({ id, kind: 'category' })}
+            onChooseFolder={(id) => chooseView({ id, kind: 'folder' })}
+            onManageCategory={(category) =>
+              setCollectionDialog({ initial: category, kind: 'category' })
+            }
+            onManageFolder={async (folder) => {
+              const name = await dialog.prompt({
+                initialValue: folder.name,
+                label: '文件夹名称',
+                required: false,
+                title: '管理文件夹',
+              });
+              if (name === null) return;
+              if (name.trim()) await updateFolder(folder.id, name.trim());
+              else if (
+                await dialog.confirm({
+                  confirmText: '删除文件夹',
+                  danger: true,
+                  description: '文件夹中的分类会保留.',
+                  title: `确定删除文件夹 "${folder.name}" 吗?`,
+                })
+              )
+                await deleteFolder(folder.id);
+            }}
+            onMove={async (id, folderId, beforeId) => {
+              await moveCategory(id, folderId, beforeId);
+              showToast('分类位置已保存.');
+            }}
+            onError={(error) => showToast(`分类移动失败: ${getErrorMessage(error)}`, false, true)}
+          />
         </SidebarSection>
 
         <SidebarSection
@@ -572,7 +570,13 @@ export function App() {
           ))}
         </SidebarSection>
 
-        <SidebarSection label="智能清单" onAdd={() => setFilterOpen(true)}>
+        <SidebarSection
+          label="智能清单"
+          onAdd={() => {
+            if (!taskView) chooseView({ kind: 'all' });
+            setFilterOpen(true);
+          }}
+        >
           <NavButton
             active={false}
             icon={<CalendarDays size={16} />}
@@ -633,7 +637,13 @@ export function App() {
         <header className={`topbar${view.kind === 'calendar' ? ' calendar-topbar' : ''}`}>
           <div className="topbar-copy">
             <p className="eyebrow">
-              {view.kind === 'calendar' ? '日历' : view.kind === 'productivity' ? '效率' : '任务'}
+              {view.kind === 'calendar'
+                ? '日历'
+                : view.kind === 'productivity'
+                  ? '效率'
+                  : taskView
+                    ? '任务'
+                    : '数据管理'}
             </p>
             <h1>
               {view.kind === 'calendar'
@@ -647,23 +657,25 @@ export function App() {
             </h1>
           </div>
           <div className="topbar-actions">
-            <label className="search-box">
-              <Search size={17} />
-              <input
-                aria-label="搜索任务"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索任务"
-                ref={searchRef}
-                value={search}
-              />
-              {search ? (
-                <button aria-label="清除搜索" onClick={() => setSearch('')} type="button">
-                  <X size={14} />
-                </button>
-              ) : (
-                <kbd>⌘ K</kbd>
-              )}
-            </label>
+            {taskView && (
+              <label className="search-box">
+                <Search size={17} />
+                <input
+                  aria-label="搜索任务"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="搜索任务"
+                  ref={searchRef}
+                  value={search}
+                />
+                {search ? (
+                  <button aria-label="清除搜索" onClick={() => setSearch('')} type="button">
+                    <X size={14} />
+                  </button>
+                ) : (
+                  <kbd>⌘ K</kbd>
+                )}
+              </label>
+            )}
             <button
               aria-label="打开全局命令"
               className="command-trigger"
@@ -674,16 +686,18 @@ export function App() {
               <span>命令</span>
               <kbd>⌘ P</kbd>
             </button>
-            <button
-              aria-pressed={filterOpen}
-              className={`filter-toggle${filterOpen ? ' active' : ''}`}
-              onClick={() => setFilterOpen((open) => !open)}
-              type="button"
-            >
-              <SlidersHorizontal size={16} />
-              筛选
-              {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
-            </button>
+            {taskView && (
+              <button
+                aria-pressed={filterOpen}
+                className={`filter-toggle${filterOpen ? ' active' : ''}`}
+                onClick={() => setFilterOpen((open) => !open)}
+                type="button"
+              >
+                <SlidersHorizontal size={16} />
+                筛选
+                {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
+              </button>
+            )}
           </div>
           {view.kind === 'calendar' && (
             <CalendarToolbar
@@ -702,22 +716,24 @@ export function App() {
           )}
         </header>
 
-        <QuickCapture
-          categories={categories}
-          onCreate={async (draft, newTagNames) => {
-            const createdTags = await Promise.all(
-              newTagNames.map((name) => addTag(name, '#7c6cf2')),
-            );
-            await taskService.create({
-              ...draft,
-              tagIds: [...draft.tagIds, ...createdTags.map((tag) => tag.id)],
-            });
-            showToast('任务已快速添加.');
-          }}
-          tags={tags}
-        />
+        {taskView && (
+          <QuickCapture
+            categories={categories}
+            onCreate={async (draft, newTagNames) => {
+              const createdTags = await Promise.all(
+                newTagNames.map((name) => addTag(name, '#7c6cf2')),
+              );
+              await taskService.create({
+                ...draft,
+                tagIds: [...draft.tagIds, ...createdTags.map((tag) => tag.id)],
+              });
+              showToast('任务已快速添加.');
+            }}
+            tags={tags}
+          />
+        )}
 
-        {filterOpen && (
+        {taskView && filterOpen && (
           <FilterPanel
             categories={categories}
             criteria={criteria}
@@ -874,8 +890,12 @@ export function App() {
             }}
             reminderDeliveryCount={(data.reminderDeliveries ?? []).length}
             onUpdateSettings={async (patch) => {
-              await updateSettings(patch);
-              showToast('日历偏好已保存.');
+              try {
+                await updateSettings(patch);
+                showToast('设置已保存.');
+              } catch (error) {
+                showToast(`设置保存失败: ${getErrorMessage(error)}`, false, true);
+              }
             }}
             onDeleteTemplate={async (id) => {
               await deleteTemplate(id);
@@ -887,6 +907,10 @@ export function App() {
         ) : view.kind === 'history' ? (
           <HistoryView
             activities={activities}
+            onClear={async () => {
+              await clearActivityHistory();
+              showToast('操作记录已清空.');
+            }}
             onUndo={async () => {
               if (await taskService.undoLatest()) showToast('最近一次操作已撤销.');
             }}
@@ -1013,7 +1037,12 @@ export function App() {
         />
       )}
       {commandPaletteOpen && (
-        <CommandPalette actions={commandActions} onClose={() => setCommandPaletteOpen(false)} />
+        <CommandPalette
+          actions={
+            taskView ? commandActions : commandActions.filter((action) => action.id !== 'new-task')
+          }
+          onClose={() => setCommandPaletteOpen(false)}
+        />
       )}
       {quickEditingTask && (
         <QuickEditPanel
@@ -1086,14 +1115,19 @@ export function App() {
           onMove={
             collectionDialog.kind === 'category' && collectionDialog.initial
               ? async (direction) => {
-                  const index = categories.findIndex(
+                  const siblings = categories.filter(
+                    (category) =>
+                      category.folderId === (collectionDialog.initial as Category).folderId,
+                  );
+                  const index = siblings.findIndex(
                     (category) => category.id === collectionDialog.initial?.id,
                   );
                   const target = index + direction;
-                  if (index < 0 || target < 0 || target >= categories.length) return;
-                  const ordered = categories.map((category) => category.id);
-                  [ordered[index], ordered[target]] = [ordered[target]!, ordered[index]!];
-                  await reorderCategories(ordered);
+                  if (index < 0 || target < 0 || target >= siblings.length) return;
+                  const ordered = siblings.map((category) => category.id);
+                  const id = ordered[index]!;
+                  const beforeId = direction < 0 ? ordered[target] : ordered[target + 1];
+                  await moveCategory(id, (collectionDialog.initial as Category).folderId, beforeId);
                   showToast('分类顺序已调整.');
                 }
               : undefined
@@ -1103,7 +1137,7 @@ export function App() {
       )}
       {toast && (
         <div className="toast" role="status">
-          <Check size={15} />
+          <>{toast.error ? <AlertTriangle size={15} /> : <Check size={15} />}</>
           {toast.message}
           {toast.undo && (
             <button
@@ -1161,57 +1195,6 @@ function CollectionNavRow({
       <button aria-label={`编辑${label}`} className="nav-manage" onClick={onManage} type="button">
         <Edit3 size={13} />
       </button>
-    </div>
-  );
-}
-
-function FolderNavGroup({
-  active,
-  categories,
-  folder,
-  onChooseCategory,
-  onChooseFolder,
-  onManageCategory,
-  onManage,
-  tasks,
-  view,
-}: {
-  active: boolean;
-  categories: Category[];
-  folder: Folder;
-  onChooseCategory: (id: string) => void;
-  onChooseFolder: () => void;
-  onManageCategory: (category: Category) => void;
-  onManage: () => Promise<void>;
-  tasks: Task[];
-  view: View;
-}) {
-  const categoryIds = new Set(categories.map((category) => category.id));
-  return (
-    <div className="folder-nav-group">
-      <CollectionNavRow
-        active={active}
-        count={tasks.filter((task) => categoryIds.has(task.categoryId) && !task.completedAt).length}
-        icon={<FolderIcon size={15} />}
-        label={folder.name}
-        onClick={onChooseFolder}
-        onManage={() => void onManage()}
-      />
-      <div className="folder-category-list">
-        {categories.map((category) => (
-          <CollectionNavRow
-            active={view.kind === 'category' && view.id === category.id}
-            count={
-              tasks.filter((task) => task.categoryId === category.id && !task.completedAt).length
-            }
-            icon={<span className="list-dot" style={{ background: category.color }} />}
-            key={category.id}
-            label={category.name}
-            onClick={() => onChooseCategory(category.id)}
-            onManage={() => onManageCategory(category)}
-          />
-        ))}
-      </div>
     </div>
   );
 }
@@ -1622,8 +1605,8 @@ function SettingsView({
         <div>
           <strong>任务提醒</strong>
           <p>
-            允许 EasyDo 在任务开始前发送本地通知. 已共享记录最近 {reminderDeliveryCount}{' '}
-            次调度与投递, 避免网页端和客户端重复提醒.
+            客户端运行期间可发送任务与习惯通知, 完全退出后暂停提醒. 已共享记录最近{' '}
+            {reminderDeliveryCount} 次调度与投递, 避免网页端和客户端重复提醒.
           </p>
         </div>
         <button className="secondary-button" onClick={() => void onRequestReminder()} type="button">
@@ -1692,11 +1675,14 @@ function SettingsView({
 
 function HistoryView({
   activities,
+  onClear,
   onUndo,
 }: {
   activities: ActivityRecord[];
+  onClear: () => Promise<void>;
   onUndo: () => Promise<void>;
 }) {
+  const dialog = useAppDialog();
   const labels: Record<ActivityRecord['action'], string> = {
     complete: '切换完成状态',
     create: '创建任务',
@@ -1708,15 +1694,32 @@ function HistoryView({
   return (
     <section className="list-view history-view">
       <div className="list-view-heading">
-        <div>
-          <p>本地记录</p>
-          <h2>操作记录</h2>
-        </div>
+        <p className="section-summary">最近 {activities.length} 条记录</p>
         {activities.length > 0 && (
-          <button className="secondary-button" onClick={() => void onUndo()} type="button">
-            <RotateCcw size={16} />
-            撤销最近操作
-          </button>
+          <div className="list-heading-actions">
+            <button className="secondary-button" onClick={() => void onUndo()} type="button">
+              <RotateCcw size={16} />
+              撤销最近操作
+            </button>
+            <button
+              className="danger-button"
+              type="button"
+              onClick={async () => {
+                if (
+                  await dialog.confirm({
+                    title: '确定清空全部操作记录吗?',
+                    description: '不会删除任务或日程. 清空后无法再撤销此前的操作.',
+                    confirmText: '清空记录',
+                    danger: true,
+                  })
+                )
+                  await onClear();
+              }}
+            >
+              <Trash2 size={16} />
+              清空记录
+            </button>
+          </div>
         )}
       </div>
       {activities.length ? (
@@ -1760,10 +1763,7 @@ function TrashView({
   return (
     <section className="list-view trash-view">
       <div className="list-view-heading">
-        <div>
-          <p>数据管理</p>
-          <h2>回收站</h2>
-        </div>
+        <p className="section-summary">{tasks.length} 项已删除任务</p>
         {tasks.length > 0 && (
           <button
             className="danger-button"

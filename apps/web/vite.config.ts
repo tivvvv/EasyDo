@@ -3,8 +3,15 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 const sourcePath = (path: string) => new URL(path, import.meta.url).pathname;
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api/v1': {
+        target: mode === 'e2e' ? 'http://127.0.0.1:24874' : 'http://127.0.0.1:24873',
+      },
+    },
+  },
   test: {
     coverage: {
       allowExternal: true,
@@ -35,4 +42,4 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
   },
-});
+}));

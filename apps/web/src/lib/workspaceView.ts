@@ -11,6 +11,10 @@ export type WorkspaceView =
     }
   | { id: string; kind: 'category' | 'folder' | 'tag' };
 
+export function isTaskView(view: WorkspaceView): boolean {
+  return !['history', 'trash', 'settings', 'productivity'].includes(view.kind);
+}
+
 export function getViewTasks(
   tasks: Task[],
   view: WorkspaceView,

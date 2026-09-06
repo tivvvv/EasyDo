@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { dataServiceOrigin, webOrigin } from './e2e/environment';
+
 export default defineConfig({
   expect: { timeout: 5_000 },
   fullyParallel: false,
@@ -7,22 +9,22 @@ export default defineConfig({
   testDir: './e2e',
   workers: 1,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: webOrigin,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
   webServer: [
     {
       command:
-        'cargo run --manifest-path ../desktop/src-tauri/Cargo.toml --features data-service-bin --bin easydo-data-service -- ../desktop/src-tauri/target/e2e/easydo.db',
-      reuseExistingServer: true,
+        'cargo run --manifest-path ../desktop/src-tauri/Cargo.toml --features data-service-bin --bin easydo-data-service -- --e2e',
+      reuseExistingServer: false,
       timeout: 120_000,
-      url: 'http://127.0.0.1:24873/api/v1/health',
+      url: `${dataServiceOrigin}/api/v1/health`,
     },
     {
-      command: 'pnpm dev --host 127.0.0.1',
-      reuseExistingServer: true,
-      url: 'http://localhost:5173',
+      command: 'pnpm dev --mode e2e --host 127.0.0.1 --port 5174 --strictPort',
+      reuseExistingServer: false,
+      url: webOrigin,
     },
   ],
   projects: [

@@ -5,7 +5,8 @@ import { db as legacyDatabase, Dexie, exportBackup as exportLegacyBackup } from 
 import { isTauriRuntime } from './notifications';
 import { createInitialWorkspace, mergeWorkspaces } from './workspaceData';
 
-const DATA_SERVICE_ORIGIN = 'http://127.0.0.1:24873';
+// 浏览器使用同源接口, 开发与测试环境由各自的 Vite 代理连接对应数据库.
+const DATA_SERVICE_ORIGIN = isTauriRuntime() ? 'http://127.0.0.1:24873' : window.location.origin;
 const API_BASE = `${DATA_SERVICE_ORIGIN}/api/v1`;
 const CLIENT_HEADER = { 'X-EasyDo-Client': '1' } as const;
 const MIGRATION_KEY = 'easydo:shared-data-migrated:v1';
@@ -190,7 +191,16 @@ class SharedWorkspaceStore {
   }
 
   private setEnvelope(envelope: WorkspaceEnvelope): void {
-    this.envelope = { ...envelope, payload: parseBackup(JSON.stringify(envelope.payload)) };
+    const payload = parseBackup(JSON.stringify(envelope.payload));
+    // 外观和历史记录更新不应重新触发任务与习惯的提醒副作用.
+    const previous = this.envelope?.payload;
+    if (previous && JSON.stringify(previous.tasks) === JSON.stringify(payload.tasks)) {
+      payload.tasks = previous.tasks;
+    }
+    if (previous && JSON.stringify(previous.habits) === JSON.stringify(payload.habits)) {
+      payload.habits = previous.habits;
+    }
+    this.envelope = { ...envelope, payload };
     for (const listener of this.listeners) listener();
   }
 

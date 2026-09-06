@@ -19,9 +19,6 @@ if (captureRuntime) document.documentElement.dataset.capture = 'true';
 
 createRoot(root).render(
   <StrictMode>
-    {desktopRuntime && !captureRuntime && (
-      <div aria-hidden="true" className="desktop-titlebar" data-tauri-drag-region />
-    )}
     <AppErrorBoundary>
       <AppDialogProvider>{captureRuntime ? <QuickCaptureWindow /> : <App />}</AppDialogProvider>
     </AppErrorBoundary>

@@ -19,6 +19,7 @@ import type {
 import { createId } from '@easydo/domain';
 
 import { sharedWorkspace } from './lib/sharedWorkspace';
+import { moveCategoryInList } from './lib/categoryOrder';
 
 function requireItem<T extends { id: string }>(items: T[], id: string, label: string): T {
   const item = items.find((candidate) => candidate.id === id);
@@ -34,6 +35,7 @@ export class SharedTaskRepository {
   async delete(id: string): Promise<void> {
     await sharedWorkspace.mutate((workspace) => {
       workspace.tasks = workspace.tasks.filter((task) => task.id !== id);
+      workspace.activities = workspace.activities.filter((activity) => activity.taskId !== id);
     });
   }
 
@@ -194,6 +196,25 @@ export async function reorderCategories(orderedIds: string[]): Promise<void> {
   });
 }
 
+export async function moveCategory(
+  id: string,
+  folderId: string | null,
+  beforeId?: string,
+): Promise<void> {
+  await sharedWorkspace.mutate((workspace) => {
+    if (folderId && !workspace.folders.some((folder) => folder.id === folderId)) {
+      throw new Error('目标文件夹不存在.');
+    }
+    workspace.categories = moveCategoryInList(workspace.categories, id, folderId, beforeId);
+  });
+}
+
+export async function clearActivityHistory(): Promise<void> {
+  await sharedWorkspace.mutate((workspace) => {
+    workspace.activities = [];
+  });
+}
+
 export async function exportBackup(): Promise<BackupPayload> {
   await sharedWorkspace.initialize();
   const workspace = sharedWorkspace.getSnapshot();
@@ -222,6 +243,8 @@ export async function emptyTrash(): Promise<number> {
   return sharedWorkspace.mutate((workspace) => {
     const before = workspace.tasks.length;
     workspace.tasks = workspace.tasks.filter((task) => !task.deletedAt);
+    const remainingIds = new Set(workspace.tasks.map((task) => task.id));
+    workspace.activities = workspace.activities.filter((item) => remainingIds.has(item.taskId));
     return before - workspace.tasks.length;
   });
 }
@@ -230,6 +253,8 @@ export async function purgeCompletedTasks(): Promise<number> {
   return sharedWorkspace.mutate((workspace) => {
     const before = workspace.tasks.length;
     workspace.tasks = workspace.tasks.filter((task) => !task.completedAt);
+    const remainingIds = new Set(workspace.tasks.map((task) => task.id));
+    workspace.activities = workspace.activities.filter((item) => remainingIds.has(item.taskId));
     return before - workspace.tasks.length;
   });
 }

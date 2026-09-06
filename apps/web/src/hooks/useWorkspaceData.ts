@@ -13,6 +13,11 @@ export function useWorkspaceData() {
     void sharedWorkspace.initialize().catch(() => undefined);
   }, []);
 
+  const habits = useMemo(
+    () => data?.habits.slice().sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    [data?.habits],
+  );
+
   return useMemo(
     () =>
       data
@@ -30,9 +35,7 @@ export function useWorkspaceData() {
               right.createdAt.localeCompare(left.createdAt),
             ),
             folders: [...data.folders].sort((left, right) => left.order - right.order),
-            habits: [...data.habits].sort((left, right) =>
-              left.createdAt.localeCompare(right.createdAt),
-            ),
+            habits: habits ?? [],
             sections: [...data.sections].sort((left, right) => left.order - right.order),
             tags: [...data.tags].sort((left, right) => left.name.localeCompare(right.name)),
             templates: [...data.templates].sort((left, right) =>
@@ -40,6 +43,6 @@ export function useWorkspaceData() {
             ),
           }
         : undefined,
-    [data],
+    [data, habits],
   );
 }

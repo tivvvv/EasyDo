@@ -133,8 +133,15 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("EasyDo desktop failed to start");
+        .build(tauri::generate_context!())
+        .expect("EasyDo desktop failed to start")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                // 即使快速收集窗口仍可见, 点击程序坞也应恢复主窗口.
+                show_main_window(_app);
+            }
+        });
 }
 
 #[cfg(test)]

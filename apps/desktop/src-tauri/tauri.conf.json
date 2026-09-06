@@ -20,6 +20,7 @@
         "minHeight": 680,
         "center": true,
         "hiddenTitle": true,
+        "dragDropEnabled": false,
         "titleBarStyle": "Transparent",
         "resizable": true,
         "fullscreen": false

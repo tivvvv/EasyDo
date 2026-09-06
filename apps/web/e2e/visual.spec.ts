@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 import { createInitialWorkspace } from '../src/lib/workspaceData';
+import { workspaceApi } from './environment';
 
-const workspaceApi = 'http://127.0.0.1:24873/api/v1/workspace';
 const clientHeaders = { 'X-EasyDo-Client': '1' };
 const fixedNow = new Date('2026-09-03T09:00:00+08:00');
 
