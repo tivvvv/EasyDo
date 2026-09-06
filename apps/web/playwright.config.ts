@@ -5,7 +5,7 @@ import { dataServiceOrigin, webOrigin } from './e2e/environment';
 export default defineConfig({
   expect: { timeout: 5_000 },
   fullyParallel: false,
-  reporter: 'list',
+  reporter: process.env.CI ? [['list'], ['github']] : 'list',
   testDir: './e2e',
   workers: 1,
   use: {
