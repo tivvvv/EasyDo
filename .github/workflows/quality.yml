@@ -51,3 +51,10 @@ jobs:
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --features data-service-bin
       - run: pnpm --filter @easydo/web exec playwright install chromium
       - run: pnpm --filter @easydo/web exec playwright test e2e/visual.spec.ts
+      - name: 保存视觉回归失败现场
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-visual-failure
+          path: apps/web/test-results/
+          retention-days: 7
